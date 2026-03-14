@@ -7,7 +7,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen">
 <title>Space Lancers</title>
-<script src="https://www.youtube.com/iframe_api"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;}
@@ -899,9 +898,18 @@ document.getElementById(‘skipAudio’).addEventListener(‘click’,()=>{docum
 setTimeout(showAP, 500);
 
 // ─── YT ──────────────────────────────────────────────
-var ytP=null,ytPend=true; // start true so music plays as soon as player is ready + user enables audio
+var ytP=null,ytPend=true;
 const DYT=‘https://youtu.be/UZM4lj8_v7Q?si=FLVDV-h27UigD2KO’;
 function ytX(url){if(!url)return null;try{const pl=url.match(/[?&]list=([A-Za-z0-9_-]+)/);if(pl)return{type:‘playlist’,id:pl[1]};const v=url.match(/(?:v=|youtu.be/|embed/)([A-Za-z0-9_-]{11})/);if(v)return{type:‘video’,id:v[1]};}catch(e){}return null;}
+
+function loadYouTubeAPI(){
+if(window._ytLoading||window.YT)return;
+window._ytLoading=true;
+var s=document.createElement(‘script’);
+s.src=‘https://www.youtube.com/iframe_api’;
+s.onerror=function(){window._ytLoading=false;};
+document.head.appendChild(s);
+}
 
 function ytPlayNow(){
 if(!ytP)return;
@@ -932,7 +940,7 @@ b(‘btnGuestBack’, function(){ showScreen(‘titleScreen’); });
 b(‘nwBtn’,        function(){ nextWave(); });
 b(‘btnPlayAgain’, function(){ goSS(); });
 b(‘btnTitle’,     function(){ resetTitle(); });
-b(‘enableAudio’,  function(){ uA(); document.getElementById(‘audioPerm’).style.display=‘none’; ytPend=true; ytPlayNow(); });
+b(‘enableAudio’,  function(){ uA(); document.getElementById(‘audioPerm’).style.display=‘none’; ytPend=true; loadYouTubeAPI(); setTimeout(ytPlayNow,500); });
 b(‘skipAudio’,    function(){ document.getElementById(‘audioPerm’).style.display=‘none’; sOn=false; mOn=false; });
 b(‘cogBtn’,       function(){ document.getElementById(‘cogOv’).classList.add(‘on’); });
 b(‘closeCog’,     function(){ document.getElementById(‘cogOv’).classList.remove(‘on’); });
@@ -948,38 +956,27 @@ wireButtons();
 
 document.addEventListener(‘touchmove’,e=>e.preventDefault(),{passive:false});
 document.addEventListener(‘contextmenu’,e=>e.preventDefault());
-</script>
 
-<script>
-function onYouTubeIframeAPIReady(){
-  var url=document.getElementById('ytInput').value.trim()||DYT;
-  var info=ytX(url);if(!info)return;
-  var pv={autoplay:1,playsinline:1,controls:0,mute:1,origin:window.location.origin};
-  var vid;
-  if(info.type==='playlist'){pv.listType='playlist';pv.list=info.id;pv.shuffle=1;}
-  else{vid=info.id;pv.loop=1;pv.playlist=info.id;}
-  var cfg={height:'200',width:'200',playerVars:pv,events:{
-    onReady:function(e){
-      e.target.setVolume(~~((window.mV||.6)*100));
-      // If user already tapped Enable Audio, play immediately
-      if(window.ytPend){
-        try{e.target.unMute();e.target.playVideo();}catch(ex){}
-        document.getElementById('mStatus').textContent='▶ Playing';
-      }
-    },
-    onStateChange:function(e){
-      // Auto-replay on end or if stalled
-      if(e.data===YT.PlayerState.ENDED||e.data===YT.PlayerState.UNSTARTED){
-        try{e.target.playVideo();}catch(ex){}
-      }
-    },
-    onError:function(e){
-      document.getElementById('mStatus').textContent='⚠ Music error - try another URL';
-    }
-  }};
-  if(vid)cfg.videoId=vid;
-  ytP=new YT.Player('ytContainer',cfg);
-}
+// YouTube API callback — must be global
+window.onYouTubeIframeAPIReady = function(){
+var url=document.getElementById(‘ytInput’).value.trim()||DYT;
+var info=ytX(url);if(!info)return;
+var pv={autoplay:1,playsinline:1,controls:0,mute:1,origin:window.location.origin};
+var vid;
+if(info.type===‘playlist’){pv.listType=‘playlist’;pv.list=info.id;pv.shuffle=1;}
+else{vid=info.id;pv.loop=1;pv.playlist=info.id;}
+var cfg={height:‘200’,width:‘200’,playerVars:pv,events:{
+onReady:function(e){
+e.target.setVolume(~~((window.mV||.6)*100));
+if(window.ytPend){try{e.target.unMute();e.target.playVideo();}catch(ex){}
+document.getElementById(‘mStatus’).textContent=‘▶ Playing’;}
+},
+onStateChange:function(e){if(e.data===1)return;try{e.target.playVideo();}catch(ex){}},
+onError:function(){document.getElementById(‘mStatus’).textContent=‘⚠ Music error’;}
+}};
+if(vid)cfg.videoId=vid;
+ytP=new YT.Player(‘ytContainer’,cfg);
+};
 </script>
 
 </body>
