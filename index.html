@@ -93,12 +93,11 @@ canvas{display:block;background:var(--bg);}
 /* ── CONTROLS ── */
 #controls{position:fixed;bottom:0;left:0;right:0;z-index:20;display:none;justify-content:space-between;align-items:flex-end;padding:0 14px 14px;}
 #controls.on{display:flex;}
-.dpad{position:relative;width:116px;height:116px;}
-.dp-btn{position:absolute;background:rgba(0,245,255,.1);border:2px solid rgba(0,245,255,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(–nc);font-size:20px;cursor:pointer;}
-.dp-btn:active{background:rgba(0,245,255,.3);}
-.dp-l{left:0;top:50%;transform:translateY(-50%);width:40px;height:44px;}
-.dp-r{right:0;top:50%;transform:translateY(-50%);width:40px;height:44px;}
-.dp-c{left:50%;top:50%;transform:translate(-50%,-50%);width:34px;height:34px;border-radius:50%;opacity:.25;}
+.joystick-wrap{position:relative;width:140px;height:140px;flex-shrink:0;}
+.joystick-base{position:absolute;inset:0;border-radius:50%;border:3px solid rgba(0,245,255,.35);background:rgba(0,245,255,.06);box-shadow:0 0 18px rgba(0,245,255,.12),inset 0 0 18px rgba(0,245,255,.05);display:flex;align-items:center;justify-content:center;}
+.joystick-symbol{font-size:26px;pointer-events:none;filter:drop-shadow(0 0 6px rgba(0,245,255,.5));user-select:none;line-height:1;}
+.joystick-thumb{position:absolute;width:52px;height:52px;border-radius:50%;background:rgba(0,245,255,.18);border:2px solid rgba(0,245,255,.6);box-shadow:0 0 14px rgba(0,245,255,.4);top:50%;left:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;transition:box-shadow .1s;}
+.joystick-thumb.active{background:rgba(0,245,255,.32);box-shadow:0 0 24px rgba(0,245,255,.7);}
 .act-btn{border-radius:50%;border:3px solid;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:‘Orbitron’,sans-serif;font-size:8px;letter-spacing:.05em;cursor:pointer;font-weight:700;gap:2px;}
 .act-btn .bi{font-size:22px;line-height:1;}
 .flap{width:88px;height:88px;border-color:var(–ng);background:rgba(0,255,136,.09);color:var(–ng);box-shadow:0 0 10px rgba(0,255,136,.2);}
@@ -192,6 +191,9 @@ canvas{display:block;background:var(--bg);}
   <div class="sel-title">⚙ Choose Your Ride · Empty slots = BOTS</div>
   <div class="player-slots" id="playerSlots"></div>
   <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;justify-content:center">
+    <button id="diffBtn" class="btn" onclick="toggleDifficulty()" style="border-color:#ffcc00;color:#ffcc00;min-width:260px">🤖 BOTS: 🟡 INTERMEDIATE</button>
+  </div>
+  <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;justify-content:center">
     <button class="btn yl" onclick="startCountdown()">🚀 LAUNCH</button>
     <button class="btn" onclick="resetToTitle()">◀ Back</button>
   </div>
@@ -250,10 +252,12 @@ canvas{display:block;background:var(--bg);}
 <!-- CONTROLS -->
 
 <div id="controls">
-  <div class="dpad">
-    <div class="dp-btn dp-l" id="dpadL">◀</div>
-    <div class="dp-btn dp-c"></div>
-    <div class="dp-btn dp-r" id="dpadR">▶</div>
+  <div class="joystick-wrap" id="joystickWrap">
+    <div class="joystick-base">
+      <div class="joystick-thumb" id="joystickThumb">
+        <div class="joystick-symbol" id="joystickSymbol">⚡</div>
+      </div>
+    </div>
   </div>
   <div class="act-btn flap" id="btnFlap">
     <span class="bi">▲</span>
@@ -445,6 +449,21 @@ function drawShip(ctx,ship,x,y,sc,hits,right=true){
 // ════════════════════════════════════════════════════════
 let pShipIdx=[0,1,2,3];
 let pIsBot=[false,true,true,true];
+let botDifficulty='intermediate'; // 'beginner' | 'intermediate' | 'advanced'
+
+const DIFF_LABELS={beginner:'🟢 BEGINNER',intermediate:'🟡 INTERMEDIATE',advanced:'🔴 ADVANCED'};
+const DIFF_COLS={beginner:'#00ff88',intermediate:'#ffcc00',advanced:'#ff4444'};
+function toggleDifficulty(){
+  const order=['beginner','intermediate','advanced'];
+  botDifficulty=order[(order.indexOf(botDifficulty)+1)%3];
+  const btn=document.getElementById('diffBtn');
+  if(btn){btn.textContent='🤖 BOTS: '+DIFF_LABELS[botDifficulty];btn.style.borderColor=DIFF_COLS[botDifficulty];btn.style.color=DIFF_COLS[botDifficulty];}
+}
+function randBotLevel(){
+  if(botDifficulty==='beginner')return 1+Math.floor(Math.random()*3);
+  if(botDifficulty==='advanced')return 7+Math.floor(Math.random()*4);
+  return 4+Math.floor(Math.random()*3);
+}
 
 function buildShipSelect(){
   const c=document.getElementById('playerSlots');
@@ -468,7 +487,7 @@ function buildShipSelect(){
   }
 }
 function toggleBot(p){if(p===0)return;pIsBot[p]=!pIsBot[p];buildShipSelect();}
-function chShip(p,d){pShipIdx[p]=(pShipIdx[p]+d+SHIPS.length)%SHIPS.length;renderPreview(p);}
+function chShip(p,d){pShipIdx[p]=(pShipIdx[p]+d+SHIPS.length)%SHIPS.length;renderPreview(p);if(p===0)updateJoystickSymbol();}
 function renderPreview(p){
   const ship=SHIPS[pShipIdx[p]];
   const cv=document.getElementById('pc'+p);if(!cv)return;
@@ -589,6 +608,7 @@ function spawnPlayers(){
       battery:100,chargeCd:0,docked:false,onGround:false,
       powerUp:null,puTimer:0,
       isBot:pIsBot[p],
+      aiLevel:pIsBot[p]?randBotLevel():0,
     });
   }
 }
@@ -596,19 +616,78 @@ function spawnPlayers(){
 // ── INPUT STATE ──
 const inp={left:false,right:false,flap:false};
 
+const SHIP_SYMBOLS=['⚡','💀','⭐','🎱','🌔','🔥','👑','☄️','🪩','☠️'];
+
+function updateJoystickSymbol(){
+  const sym=document.getElementById('joystickSymbol');
+  if(sym)sym.textContent=SHIP_SYMBOLS[pShipIdx[0]]||'⚡';
+}
+
 function bindControls(){
-  function addT(el,on,off){
-    if(!el)return;
-    el.addEventListener('touchstart',e=>{e.preventDefault();on();},{passive:false});
-    el.addEventListener('touchend',  e=>{e.preventDefault();off();},{passive:false});
-    el.addEventListener('touchcancel',e=>{e.preventDefault();off();},{passive:false});
-    el.addEventListener('mousedown',on);
-    el.addEventListener('mouseup',off);
-    el.addEventListener('mouseleave',off);
+  // Flap button
+  const btnFlap=document.getElementById('btnFlap');
+  if(btnFlap){
+    btnFlap.addEventListener('touchstart',e=>{e.preventDefault();inp.flap=true;},{passive:false});
+    btnFlap.addEventListener('touchend',  e=>{e.preventDefault();inp.flap=false;},{passive:false});
+    btnFlap.addEventListener('touchcancel',e=>{e.preventDefault();inp.flap=false;},{passive:false});
+    btnFlap.addEventListener('mousedown',()=>inp.flap=true);
+    btnFlap.addEventListener('mouseup',  ()=>inp.flap=false);
+    btnFlap.addEventListener('mouseleave',()=>inp.flap=false);
   }
-  addT(document.getElementById('dpadL'),()=>inp.left=true,()=>inp.left=false);
-  addT(document.getElementById('dpadR'),()=>inp.right=true,()=>inp.right=false);
-  addT(document.getElementById('btnFlap'),()=>inp.flap=true,()=>inp.flap=false);
+
+  // Joystick
+  const wrap=document.getElementById('joystickWrap');
+  const thumb=document.getElementById('joystickThumb');
+  if(!wrap||!thumb)return;
+
+  const RADIUS=70; // half of 140px base
+  const DEAD=12;   // dead zone px from center
+  let jActive=false,jId=null;
+
+  function joyMove(cx,cy){
+    const rect=wrap.getBoundingClientRect();
+    const ox=cx-(rect.left+RADIUS);
+    const oy=cy-(rect.top+RADIUS);
+    // Clamp thumb inside circle
+    const dist=Math.sqrt(ox*ox+oy*oy);
+    const clamp=Math.min(dist,RADIUS-26);
+    const angle=Math.atan2(oy,ox);
+    const tx=Math.cos(angle)*clamp;
+    thumb.style.transform=`translate(calc(-50% + ${tx}px), -50%)`;
+    // Input thresholds — only horizontal matters
+    inp.left  = ox < -DEAD;
+    inp.right = ox >  DEAD;
+    thumb.classList.toggle('active', inp.left||inp.right);
+  }
+
+  function joyRelease(){
+    jActive=false;jId=null;
+    inp.left=false;inp.right=false;
+    thumb.style.transform='translate(-50%,-50%)';
+    thumb.classList.remove('active');
+  }
+
+  wrap.addEventListener('touchstart',e=>{
+    e.preventDefault();
+    if(jActive)return;
+    const t=e.changedTouches[0];jActive=true;jId=t.identifier;
+    joyMove(t.clientX,t.clientY);
+  },{passive:false});
+
+  wrap.addEventListener('touchmove',e=>{
+    e.preventDefault();
+    for(const t of e.changedTouches){if(t.identifier===jId)joyMove(t.clientX,t.clientY);}
+  },{passive:false});
+
+  wrap.addEventListener('touchend',  e=>{e.preventDefault();for(const t of e.changedTouches){if(t.identifier===jId)joyRelease();}},{passive:false});
+  wrap.addEventListener('touchcancel',e=>{e.preventDefault();joyRelease();},{passive:false});
+
+  // Mouse fallback for desktop testing
+  let mouseDown=false;
+  wrap.addEventListener('mousedown',e=>{mouseDown=true;joyMove(e.clientX,e.clientY);});
+  wrap.addEventListener('mousemove',e=>{if(mouseDown)joyMove(e.clientX,e.clientY);});
+  wrap.addEventListener('mouseup',  ()=>{mouseDown=false;joyRelease();});
+  wrap.addEventListener('mouseleave',()=>{mouseDown=false;joyRelease();});
 }
 
 // ── UPDATE ──
@@ -652,24 +731,45 @@ function sfxThrustOnce(p){
 
 // ── BOT AI ──
 function botUpdate(p){
-  if(p.battery<18&&!p.docked){
-    // Head to nearest dock
-    const nd=docks.reduce((b,d)=>Math.abs(p.x-(d.x+d.w/2))<Math.abs(p.x-(b.x+b.w/2))?d:b,docks[0]);
-    const cx2=nd.x+nd.w/2;
-    p.facing=cx2>p.x?1:-1;
-    p.vx+=p.facing*FWD*(p.ship.speed/3)*.6;
-    if(p.y>nd.y-40)p.vy+=FLAP*.5;
-    return;
+  const lvl=p.aiLevel||5; // 1-10
+  const aggr=lvl/10;      // 0.1 – 1.0 aggression multiplier
+  const rechargeThreshold=10+lvl*4; // higher level bots recharge less often (stays in fight longer)
+
+  // Low battery: head to dock
+  if(p.battery<rechargeThreshold&&!p.docked){
+    const nd=docks.length?docks.reduce((b,d)=>Math.abs(p.x-(d.x+d.w/2))<Math.abs(p.x-(b.x+b.w/2))?d:b,docks[0]):null;
+    if(nd){
+      const cx2=nd.x+nd.w/2;
+      p.facing=cx2>p.x?1:-1;
+      p.vx+=p.facing*FWD*(p.ship.speed/3)*.6;
+      if(p.y>nd.y-40)p.vy+=FLAP*.5;
+      return;
+    }
   }
+
+  // Random jitter — lower level bots make more mistakes
+  if(Math.random()>(0.4+aggr*.5))return;
+
   let target=null,minD=9999;
   players.forEach(q=>{if(q.id===p.id||!q.alive||q.respawning)return;const d=dst(p,q);if(d<minD){minD=d;target=q;}});
   if(!target)return;
+
   const tx=target.x-p.x;
-  if(tx>20){p.facing=1;p.vx+=FWD*(p.ship.speed/3)*.7;}
-  else if(tx<-20){p.facing=-1;p.vx-=FWD*(p.ship.speed/3)*.7;}
+  const deadzone=30-lvl*2; // higher bots react to smaller gaps
+  if(tx>deadzone){p.facing=1;p.vx+=FWD*(p.ship.speed/3)*(0.4+aggr*.6);}
+  else if(tx<-deadzone){p.facing=-1;p.vx-=FWD*(p.ship.speed/3)*(0.4+aggr*.6);}
+
   const dy=p.y-target.y;
-  if((dy>30||p.y>H*.74)&&p.battery>0)p.vy+=FLAP*(.55+Math.random()*.25);
-  blackHoles.forEach(bh=>{if(dst2(p.x,p.y,bh.x,bh.y)<140*140)p.vy+=FLAP*.8;});
+  // Higher bots try to be above target (lance advantage), lower bots just chase
+  const heightBias=lvl>5?0.35:0;
+  if((dy>30-lvl*2||p.y>H*(0.8-aggr*.1))&&p.battery>0)
+    p.vy+=FLAP*((0.35+aggr*.45)+heightBias+(Math.random()*(0.3-aggr*.2)));
+
+  // Avoid black holes — higher bots are more aware
+  blackHoles.forEach(bh=>{
+    const avoidR=80+lvl*14;
+    if(dst2(p.x,p.y,bh.x,bh.y)<avoidR*avoidR)p.vy+=FLAP*(0.5+aggr*.5);
+  });
 }
 
 // ── PHYSICS ──
@@ -1197,16 +1297,24 @@ function loop(){
 }
 
 function initGame(){
+  // Randomize bot ships each wave
+  for(let p=1;p<4;p++){if(pIsBot[p])pShipIdx[p]=Math.floor(Math.random()*SHIPS.length);}
   resizeCv();bgCache=null;
-  gameRunning=true;tick=0;particles=[];powerUps=[];courier=null;chainAngle=0;
+  gameRunning=false;tick=0;particles=[];powerUps=[];courier=null;chainAngle=0;
   puDropTimer=Math.floor(Math.random()*600)+1200;
-  buildArena();spawnPlayers();buildHUD();
+  buildArena();spawnPlayers();buildHUD();updateJoystickSymbol();
   document.getElementById('hud').classList.add('on');
   document.getElementById('controls').classList.add('on');
   document.getElementById('overlay').classList.remove('on');
   document.getElementById('cogBtn').classList.add('on');
   if(mpMode==='host')document.getElementById('mpBadge').style.display='block';
   bindControls();
+  // Render one frozen frame so player can see arena before countdown ends
+  render();
+}
+
+function startGame(){
+  gameRunning=true;
   if(gameLoop)cancelAnimationFrame(gameLoop);
   loop();
 }
@@ -1216,13 +1324,14 @@ function initGame(){
 // ════════════════════════════════════════════════════════
 function startCountdown(){
   showScreen('gameScreen');
+  initGame(); // build arena & show controls immediately
   const ce=document.getElementById('countdown'),ne=document.getElementById('cdNum');
   ce.classList.add('on');let n=3;ne.textContent=n;sfxBeep(false);
   const tick2=()=>{
     n--;
     ne.style.animation='none';void ne.offsetWidth;ne.style.animation='cdPop .8s ease-out forwards';
     if(n>0){ne.textContent=n;sfxBeep(false);setTimeout(tick2,900);}
-    else{ne.textContent='GO!';sfxBeep(true);setTimeout(()=>{ce.classList.remove('on');initGame();},800);}
+    else{ne.textContent='GO!';sfxBeep(true);setTimeout(()=>{ce.classList.remove('on');startGame();},800);}
   };
   setTimeout(tick2,900);
 }
