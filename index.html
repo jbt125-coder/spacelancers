@@ -136,23 +136,23 @@ canvas{display:block;background:var(--bg);}
 <div id="titleScreen" class="screen active">
   <div class="logo">Space Lancers</div>
   <div class="sub">Asteroid Jockey Championship</div>
-  <button class="btn or" onclick="goSS()">⚔ Solo / Local Bots</button>
-  <button class="btn yl" onclick="mpHost()">📡 Host Multiplayer</button>
-  <button class="btn" onclick="showScreen('guestScreen')">🎮 Join Game</button>
-  <button class="btn" style="margin-top:2px" onclick="showHowTo()">❓ How To Play</button>
+  <button class="btn or" data-action="goSS()">⚔ Solo / Local Bots</button>
+  <button class="btn yl" data-action="mpHost()">📡 Host Multiplayer</button>
+  <button class="btn" data-action="showScreen('guestScreen')">🎮 Join Game</button>
+  <button class="btn" style="margin-top:2px" data-action="showHowTo()">❓ How To Play</button>
 </div>
 <div id="shipSelectScreen" class="screen">
   <div class="sel-title">⚙ Choose Your Ride</div>
   <div class="diff-row">
     <span>BOT DIFFICULTY:</span>
-    <button class="diff-btn active" id="diffBeg" onclick="setDiff('beginner')">BEGINNER</button>
-    <button class="diff-btn" id="diffInt" onclick="setDiff('intermediate')">INTERMEDIATE</button>
-    <button class="diff-btn" id="diffAdv" onclick="setDiff('advanced')">ADVANCED</button>
+    <button class="diff-btn active" id="diffBeg" data-action="setDiff('beginner')">BEGINNER</button>
+    <button class="diff-btn" id="diffInt" data-action="setDiff('intermediate')">INTERMEDIATE</button>
+    <button class="diff-btn" id="diffAdv" data-action="setDiff('advanced')">ADVANCED</button>
   </div>
   <div class="player-slots" id="pSlots"></div>
   <div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap;justify-content:center">
-    <button class="btn yl" onclick="startCD()">🚀 LAUNCH</button>
-    <button class="btn" onclick="resetTitle()">◀ Back</button>
+    <button class="btn yl" data-action="startCD()">🚀 LAUNCH</button>
+    <button class="btn" data-action="resetTitle()">◀ Back</button>
   </div>
 </div>
 <div id="lobbyScreen" class="screen">
@@ -163,8 +163,8 @@ canvas{display:block;background:var(--bg);}
     <div class="llbl">PLAYERS</div>
     <div class="lpips" id="lobbyPips"></div>
     <div style="font-size:8px;color:#2a2a2a;margin:5px 0 11px;line-height:1.7">Host mirrors to TV · Guests use their own phone</div>
-    <button class="btn yl" onclick="mpLaunch()">🚀 LAUNCH</button>
-    <button class="btn" onclick="mpCancel()" style="margin-top:4px">◀ Cancel</button>
+    <button class="btn yl" data-action="mpLaunch()">🚀 LAUNCH</button>
+    <button class="btn" data-action="mpCancel()" style="margin-top:4px">◀ Cancel</button>
   </div>
 </div>
 <div id="guestScreen" class="screen">
@@ -176,14 +176,14 @@ canvas{display:block;background:var(--bg);}
     <div id="guestShipWrap">
       <div class="llbl" style="margin-bottom:4px">CHOOSE SHIP</div>
       <div class="gshr">
-        <button onclick="gSD(-1)">◀</button>
+        <button data-action="gSD(-1)">◀</button>
         <canvas id="guestPreview" width="140" height="56" style="image-rendering:pixelated"></canvas>
-        <button onclick="gSD(1)">▶</button>
+        <button data-action="gSD(1)">▶</button>
       </div>
       <div id="gSN" style="font-family:'Orbitron',sans-serif;font-size:8px;color:var(--no);text-align:center;margin-top:2px"></div>
     </div>
-    <button class="btn yl" onclick="mpJoin()" style="margin-top:6px">🎮 JOIN</button>
-    <button class="btn" onclick="showScreen('titleScreen')" style="margin-top:4px">◀ Back</button>
+    <button class="btn yl" data-action="mpJoin()" style="margin-top:6px">🎮 JOIN</button>
+    <button class="btn" data-action="showScreen('titleScreen')" style="margin-top:4px">◀ Back</button>
   </div>
 </div>
 <div id="gameScreen" class="screen"><canvas id="gameCanvas"></canvas></div>
@@ -202,9 +202,9 @@ canvas{display:block;background:var(--bg);}
     <div class="ovtit" id="ovTitle">P1 WINS!</div>
     <div class="ovsub" id="ovSub">Last Jockey Standing</div>
     <div id="scoreBoard" style="margin-bottom:12px"></div>
-    <button class="btn yl" id="nwBtn" onclick="nextWave()" style="display:none">⚔ NEXT WAVE</button>
-    <button class="btn yl" onclick="goSS()">⚔ Play Again</button>
-    <button class="btn" onclick="resetTitle()" style="margin-top:4px">🏠 Title</button>
+    <button class="btn yl" id="nwBtn" data-action="nextWave()" style="display:none">⚔ NEXT WAVE</button>
+    <button class="btn yl" data-action="goSS()">⚔ Play Again</button>
+    <button class="btn" data-action="resetTitle()" style="margin-top:4px">🏠 Title</button>
   </div>
 </div>
 <div id="countdown"><div id="cdNum">3</div></div>
@@ -338,12 +338,12 @@ const sl=document.createElement(‘div’);sl.className=‘pslot’;
 const bc=p===0?’#00ff88’:(pBot[p]?’#ff6600’:’#00ff88’);
 const bl=p===0?‘👤 YOU’:(pBot[p]?‘🤖 BOT’:‘👤 HUMAN’);
 sl.innerHTML=’<h3 style="color:'+PC[p]+'">’+PN[p]+’</h3>’+
-(p>0?’<button class="btog" id="bt'+p+'" onclick="tBot('+p+')" style="border:1px solid '+bc+';background:transparent;color:'+bc+'">’+bl+’</button>’:’<div style="font-size:7px;color:#00ff88;margin-bottom:1px">👤 YOU</div>’)+
+(p>0?’<button class="btog" id="bt'+p+'" data-action="tBot('+p+')" style="border:1px solid '+bc+';background:transparent;color:'+bc+'">’+bl+’</button>’:’<div style="font-size:7px;color:#00ff88;margin-bottom:1px">👤 YOU</div>’)+
 ‘<div style="font-size:7px;color:#444" id="sc'+p+'">’+(pSI[p]+1)+’/’+SH.length+’</div>’+
 ‘<div class="scv"><canvas id="pc'+p+'" width="140" height="54"></canvas></div>’+
 ‘<div class="snm" id="sn'+p+'"></div>’+
 ‘<div style="width:100%" id="ss'+p+'"></div>’+
-‘<div class="snav"><button onclick="cSh('+p+',-1)">◀</button><button onclick="cSh('+p+',1)">▶</button></div>’;
+‘<div class="snav"><button data-action="cSh('+p+',-1)">◀</button><button data-action="cSh('+p+',1)">▶</button></div>’;
 c.appendChild(sl);rPrev(p);
 }
 }
@@ -898,6 +898,37 @@ function ytPlayNow(){
 if(!ytP)return;
 try{ytP.unMute();ytP.setVolume(~~(mV*100));ytP.playVideo();document.getElementById(‘mStatus’).textContent=‘▶ Playing’;}catch(e){}
 }
+
+// ─── EVENT DELEGATION (replaces all inline onclick handlers) ─────────────
+document.addEventListener(‘click’, function(e) {
+const el = e.target.closest(’[data-action]’);
+if (!el) return;
+const action = el.getAttribute(‘data-action’);
+if (!action) return;
+// Parse function name and args: e.g. “setDiff(‘beginner’)” or “goSS()”
+const m = action.match(/^(\w+)((.*))$/);
+if (!m) return;
+const fn = m[1];
+const argStr = m[2].trim();
+// Parse arguments
+let args = [];
+if (argStr.length > 0) {
+// Handle string args like ‘beginner’ and numeric args like -1, 0, 1, 2, 3
+args = argStr.split(’,’).map(a => {
+a = a.trim();
+if ((a.startsWith(”’”) && a.endsWith(”’”)) || (a.startsWith(’”’) && a.endsWith(’”’))) {
+return a.slice(1, -1);
+}
+return Number(a);
+});
+}
+const funcs = {
+goSS, mpHost, showScreen, showHowTo, resetTitle,
+setDiff, startCD, mpLaunch, mpCancel, mpJoin,
+gSD, nextWave, tBot, cSh
+};
+if (funcs[fn]) funcs[fn](...args);
+});
 
 document.addEventListener(‘touchmove’,e=>e.preventDefault(),{passive:false});
 document.addEventListener(‘contextmenu’,e=>e.preventDefault());
