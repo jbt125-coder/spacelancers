@@ -549,7 +549,7 @@ let W,H,gameRunning=false,gameLoop=null,tick=0;
 let players=[],particles=[],platforms=[],docks=[],blackHoles=[],powerUps=[],courier=null,bgCache=null;
 
 const GRAV=0.10,FWD=0.18,FLAP=-0.28,MAXSPD=4.5,BOUNCE=.35,FRICT=.985;
-const LANCE_HIT=28,INV_FRAMES=300,MAX_LIVES=3;
+const LANCE_HIT=28,INV_FRAMES=150,MAX_LIVES=3;  // 150 = 2.5s at 60fps
 const CHARGE_RATE=0.3,DRAIN_RATE=0.055,CHARGE_CD=600; // 10s cooldown at 60fps
 
 function resizeCv(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
@@ -692,8 +692,17 @@ function checkWrap(p){
 // ── PLATFORMS (tactical, no charging) ──
 function checkPlatforms(p){
   platforms.forEach(pl=>{
-    if(p.x>pl.x-10&&p.x<pl.x+pl.w+10&&p.vy>=0&&p.y+14>pl.y&&p.y+14<pl.y+pl.h+14){
-      p.y=pl.y-14;p.vy=0;p.vx*=.82;p.onGround=true;
+    // ── Landing on top (falling down) ──
+    if(p.x>pl.x-10&&p.x<pl.x+pl.w+10){
+      if(p.vy>=0&&p.y+14>pl.y&&p.y+14<pl.y+pl.h+14){
+        p.y=pl.y-14;p.vy=0;p.vx*=.82;p.onGround=true;
+        // Passive slow regen on plain platform (1/3 dock speed, no cooldown needed)
+        p.battery=Math.min(100,p.battery+CHARGE_RATE/3);
+      }
+      // ── Hard ceiling — cannot fly up through from below ──
+      if(p.vy<0&&p.y-10<pl.y+pl.h&&p.y-10>pl.y-20){
+        p.y=pl.y+pl.h+10;p.vy=Math.abs(p.vy)*BOUNCE;
+      }
     }
   });
   if(p.y>H-26){p.y=H-26;p.vy=0;p.vx*=.82;p.onGround=true;}
@@ -705,13 +714,20 @@ function checkDocks(p){
   if(!p.docked)p.battery=Math.max(0,p.battery-DRAIN_RATE);
 
   docks.forEach(d=>{
-    if(p.x>d.x-10&&p.x<d.x+d.w+10&&p.vy>=0&&p.y+14>d.y&&p.y+14<d.y+d.h+14){
-      p.y=d.y-14;p.vy=0;p.vx*=.82;p.onGround=true;p.docked=true;
-      if(p.chargeCd<=0){
-        p.battery=Math.min(100,p.battery+CHARGE_RATE);
-        p.lastDock=d.id;
-        if(!sfxChargeOn)sfxChargeStart();
-        if(p.battery>=100){p.chargeCd=CHARGE_CD;sfxChargeStop();} // cooldown when full
+    if(p.x>d.x-10&&p.x<d.x+d.w+10){
+      // Land on top
+      if(p.vy>=0&&p.y+14>d.y&&p.y+14<d.y+d.h+14){
+        p.y=d.y-14;p.vy=0;p.vx*=.82;p.onGround=true;p.docked=true;
+        if(p.chargeCd<=0){
+          p.battery=Math.min(100,p.battery+CHARGE_RATE);
+          p.lastDock=d.id;
+          if(!sfxChargeOn)sfxChargeStart();
+          if(p.battery>=100){p.chargeCd=CHARGE_CD;sfxChargeStop();}
+        }
+      }
+      // Hard ceiling — cannot fly up through dock from below
+      if(p.vy<0&&p.y-10<d.y+d.h&&p.y-10>d.y-20){
+        p.y=d.y+d.h+10;p.vy=Math.abs(p.vy)*BOUNCE;
       }
     }
   });
@@ -781,7 +797,7 @@ function tickRespawn(p){
     p.respawning=false;
     p.hits=0;
     p.battery=60;
-    p.invincible=INV_FRAMES*2;// 10 sec invincible on respawn
+    p.invincible=300;// 5 sec invincible on respawn
     // Spawn at last used dock
     const dock=docks[p.lastDock]||docks[0];
     p.x=dock.x+dock.w/2;
