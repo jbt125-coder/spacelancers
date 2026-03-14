@@ -550,7 +550,7 @@ let players=[],particles=[],platforms=[],docks=[],blackHoles=[],powerUps=[],cour
 
 const GRAV=0.10,FWD=0.18,FLAP=-0.28,MAXSPD=4.5,BOUNCE=.35,FRICT=.985;
 const LANCE_HIT=28,INV_FRAMES=150,MAX_LIVES=3;  // 150 = 2.5s at 60fps
-const CHARGE_RATE=0.3,DRAIN_RATE=0.055,CHARGE_CD=600; // 10s cooldown at 60fps
+const CHARGE_RATE=0.3,DRAIN_RATE=0.0165,CHARGE_CD=600; // drain: ~60s to empty at 60fps
 
 function resizeCv(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
 
@@ -617,8 +617,11 @@ function update(){
   players.forEach((p,i)=>{
     if(!p.alive)return;
     if(p.respawning){tickRespawn(p);return;}
-    if(!p.isBot)applyInput(p);
-    else botUpdate(p);
+    // Only apply local input to P1 (index 0). Guests send input over network.
+    // In solo/bot mode p.isBot handles the rest.
+    if(i===0&&!p.isBot) applyInput(p);
+    else if(p.isBot) botUpdate(p);
+    // i>0 non-bot human slots in MP host mode: input comes via mpHostRx, not here
     updatePhysics(p);
     checkWrap(p);
     checkPlatforms(p);
@@ -710,14 +713,15 @@ function checkPlatforms(p){
 
 // ── DOCKS (recharge bays) ──
 function checkDocks(p){
-  // Always drain battery in flight
-  if(!p.docked)p.battery=Math.max(0,p.battery-DRAIN_RATE);
+  // Drain only while flying (not docked and not on any ground)
+  if(!p.docked&&!p.onGround)p.battery=Math.max(0,p.battery-DRAIN_RATE);
 
   docks.forEach(d=>{
     if(p.x>d.x-10&&p.x<d.x+d.w+10){
       // Land on top
       if(p.vy>=0&&p.y+14>d.y&&p.y+14<d.y+d.h+14){
         p.y=d.y-14;p.vy=0;p.vx*=.82;p.onGround=true;p.docked=true;
+        // Always charge on dock regardless of battery level — cooldown only triggers after full charge
         if(p.chargeCd<=0){
           p.battery=Math.min(100,p.battery+CHARGE_RATE);
           p.lastDock=d.id;
@@ -725,7 +729,7 @@ function checkDocks(p){
           if(p.battery>=100){p.chargeCd=CHARGE_CD;sfxChargeStop();}
         }
       }
-      // Hard ceiling — cannot fly up through dock from below
+      // Hard ceiling
       if(p.vy<0&&p.y-10<d.y+d.h&&p.y-10>d.y-20){
         p.y=d.y+d.h+10;p.vy=Math.abs(p.vy)*BOUNCE;
       }
@@ -1169,6 +1173,13 @@ function render(){
     // Name
     cx.fillStyle=p.color;cx.font='bold 9px Orbitron';cx.textAlign='center';
     cx.shadowColor=p.color;cx.shadowBlur=5;cx.fillText(p.name,p.x,p.y-46);cx.shadowBlur=0;
+
+    // Low battery warning
+    if(p.battery<20&&!p.docked&&tick%30<15){
+      cx.fillStyle='#ff3333';cx.font='bold 8px Orbitron';cx.textAlign='center';
+      cx.shadowColor='#ff0000';cx.shadowBlur=8;
+      cx.fillText('⚡ RECHARGE!',p.x,p.y-56);cx.shadowBlur=0;
+    }
   });
 
   cx.textAlign='left';
@@ -1377,7 +1388,7 @@ let lastLowBat=0;
 function sfxUpdate(){
   if(!gameRunning)return;
   const p1=players[0];if(!p1||!p1.alive)return;
-  if(p1.battery<20&&!p1.docked){const now=Date.now();if(now-lastLowBat>1100){lastLowBat=now;try{const t=audioCtx.currentTime,o=audioCtx.createOscillator(),g=audioCtx.createGain();o.connect(g);g.connect(audioCtx.destination);o.type='square';o.frequency.value=180;g.gain.setValueAtTime(sfxVol*.22,t);g.gain.exponentialRampToValueAtTime(.001,t+.1);o.start(t);o.stop(t+.1);}catch(e){}}}
+  if(p1.battery<15&&!p1.docked){const now=Date.now();if(now-lastLowBat>1100){lastLowBat=now;try{const t=audioCtx.currentTime,o=audioCtx.createOscillator(),g=audioCtx.createGain();o.connect(g);g.connect(audioCtx.destination);o.type='square';o.frequency.value=180;g.gain.setValueAtTime(sfxVol*.22,t);g.gain.exponentialRampToValueAtTime(.001,t+.1);o.start(t);o.stop(t+.1);}catch(e){}}}
   let closestBH=9999;
   blackHoles.forEach(bh=>{const d=Math.sqrt((p1.x-bh.x)**2+(p1.y-bh.y)**2);if(d<closestBH)closestBH=d;});
   const bhVol=Math.max(0,(1-closestBH/200))*sfxVol*.3;
