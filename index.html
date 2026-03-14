@@ -102,6 +102,10 @@ canvas{display:block;background:var(--bg);}
 .act-btn .bi{font-size:22px;line-height:1;}
 .flap{width:88px;height:88px;border-color:var(–ng);background:rgba(0,255,136,.09);color:var(–ng);box-shadow:0 0 10px rgba(0,255,136,.2);}
 .flap:active{background:rgba(0,255,136,.28);box-shadow:0 0 22px rgba(0,255,136,.5);}
+.fire-btn{width:88px;height:88px;border-color:#ff6600;background:rgba(255,102,0,.07);color:#ff6600;box-shadow:0 0 10px rgba(255,102,0,.15);opacity:.35;transition:opacity .15s,background .15s,box-shadow .15s;}
+.fire-btn.has-pu{opacity:1;box-shadow:0 0 18px rgba(255,102,0,.5);animation:firePulse 1.2s ease-in-out infinite;}
+.fire-btn:active{background:rgba(255,102,0,.3);box-shadow:0 0 28px #ff6600;}
+@keyframes firePulse{0%,100%{box-shadow:0 0 14px rgba(255,102,0,.4);}50%{box-shadow:0 0 28px rgba(255,102,0,.9);}}
 
 /* ── OVERLAY ── */
 #overlay{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;background:rgba(4,5,15,.85);backdrop-filter:blur(4px);}
@@ -258,6 +262,10 @@ canvas{display:block;background:var(--bg);}
         <div class="joystick-symbol" id="joystickSymbol">⚡</div>
       </div>
     </div>
+  </div>
+  <div class="act-btn fire-btn" id="btnFire">
+    <span class="bi" id="fireIcon">🔥</span>
+    <span id="fireLabel">FIRE</span>
   </div>
   <div class="act-btn flap" id="btnFlap">
     <span class="bi">▲</span>
@@ -624,14 +632,22 @@ function buildArena(){
 
 function spawnPlayers(){
   players=[];
-  const sx=[W*.2,W*.4,W*.6,W*.8],sy=H*.3;
+  // Spread spawn — divide screen into 4 quadrants, pick random spot in each
+  const quadrants=[
+    {x:W*.1+Math.random()*W*.2, y:H*.15+Math.random()*H*.15},
+    {x:W*.55+Math.random()*W*.2,y:H*.15+Math.random()*H*.15},
+    {x:W*.1+Math.random()*W*.2, y:H*.45+Math.random()*H*.15},
+    {x:W*.55+Math.random()*W*.2,y:H*.45+Math.random()*H*.15},
+  ];
+  // Shuffle quadrants so P1 doesn't always start top-left
+  for(let i=quadrants.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[quadrants[i],quadrants[j]]=[quadrants[j],quadrants[i]];}
   for(let p=0;p<4;p++){
     const ship=SHIPS[pShipIdx[p]];
     players.push({
-      id:p,ship,x:sx[p],y:sy,vx:0,vy:0,facing:1,
+      id:p,ship,x:quadrants[p].x,y:quadrants[p].y,vx:0,vy:0,facing:1,
       hits:0,lives:MAX_LIVES,alive:true,
       color:PCOLS[p],name:PNAMES[p],
-      invincible:0,respawning:false,respawnTimer:0,lastDock:0,
+      invincible:90,respawning:false,respawnTimer:0,lastDock:0, // 1.5s grace on spawn
       battery:100,chargeCd:0,docked:false,onGround:false,
       powerUp:null,puTimer:0,
       isBot:pIsBot[p],
@@ -664,7 +680,12 @@ function bindControls(){
     btnFlap.addEventListener('mouseleave',()=>inp.flap=false);
   }
 
-  // Joystick
+  // Fire button
+  const btnFire=document.getElementById('btnFire');
+  if(btnFire){
+    btnFire.addEventListener('touchstart',e=>{e.preventDefault();firePowerUp(players[0]);},{passive:false});
+    btnFire.addEventListener('mousedown',()=>firePowerUp(players[0]));
+  }
   const wrap=document.getElementById('joystickWrap');
   const thumb=document.getElementById('joystickThumb');
   if(!wrap||!thumb)return;
@@ -903,6 +924,7 @@ function checkLance(){
       const pa=players[a],pb=players[b];
       if(!pa.alive||!pb.alive||pa.respawning||pb.respawning)continue;
       if(pa.invincible>0||pb.invincible>0)continue;
+      if(pa.powerUp==='ghost'||pb.powerUp==='ghost')continue; // ghost = untouchable
       if(pb.docked)continue;
       const llen=32; // fixed lance length — 1 lance, no segments
       const lx=pa.x+pa.facing*llen,ly=pa.y-6;
@@ -1022,6 +1044,7 @@ function tickRespawn(p){
     p.x=best.x;p.y=best.y;
     p.vx=0;p.vy=0;
     if(!p.isBot){
+      updateFireBtn();
       const rm=document.getElementById('respawnMsg');
       rm.textContent='🛸 '+p.name+' — NEW LANCE!';rm.style.display='block';
       setTimeout(()=>{rm.style.display='none';},1400);
@@ -1030,15 +1053,16 @@ function tickRespawn(p){
 }
 
 // ── POWER-UPS ──
-const PU_TYPES=['laser','chain','shield','wind','freeze'];
-const PU_ICONS={laser:'🔴',chain:'⛓',shield:'🛡',wind:'💨',freeze:'❄️'};
-const PU_NAMES={laser:'BIG LASER',chain:'BALL & CHAIN',shield:'SHIELD',wind:'WIND PUSH',freeze:'FREEZE'};
-let puDropTimer=Math.floor(Math.random()*600)+1200;// 20-35 sec first drop
+const PU_TYPES=['shield','nova','ghost','homing','freeze','double'];
+const PU_ICONS={shield:'🛡',nova:'💥',ghost:'👻',homing:'🎯',freeze:'❄️',double:'⚔️'};
+const PU_NAMES={shield:'SHIELD',nova:'NOVA BLAST',ghost:'GHOST',homing:'HOMING',freeze:'FREEZE RAY',double:'DOUBLE LANCE'};
+const PU_DURATIONS={shield:480,nova:0,ghost:360,homing:0,freeze:0,double:0}; // 0=instant
+let puDropTimer=Math.floor(Math.random()*600)+1200;
 
 function tickPowerUpDrops(){
   puDropTimer--;
   if(puDropTimer<=0){
-    puDropTimer=Math.floor(Math.random()*900)+1200;
+    puDropTimer=Math.floor(Math.random()*600)+1200; // 20-30s
     spawnCourier();
   }
 }
@@ -1060,74 +1084,117 @@ function tickCourier(){
     courier.dropped=true;
     courier.vx*=-1.5;courier.vy=-3;
   }
-  if(courier.timer>180||(courier.x<-120||courier.x>W+120)&&courier.dropped){courier=null;}
+  if(courier.timer>180||((courier.x<-120||courier.x>W+120)&&courier.dropped)){courier=null;}
 }
-
-function tickPowerUpDrops2(){} // placeholder
 
 function tickPowerUp(p){
   // Check pickup
-  powerUps.forEach((pu,i)=>{
+  powerUps=powerUps.filter((pu,i)=>{
     pu.t++;
-    if(dst2(p.x,p.y,pu.x,pu.y)<32*32&&!p.powerUp){
+    // Bob up and down
+    if(dst2(p.x,p.y,pu.x,pu.y)<36*36&&!p.powerUp){
       p.powerUp=pu.type;
-      p.puTimer=pu.type==='laser'?1:600;// laser = one use, others 10 sec
-      powerUps.splice(i,1);
+      p.puTimer=PU_DURATIONS[pu.type];
       sfxPickup();
-      // Auto-use laser immediately on pickup
-      if(pu.type==='laser')fireLaser(p);
+      updateFireBtn();
+      return false;
     }
+    return pu.t<1800; // disappear after 30s
   });
-  // Power-up timers
-  if(p.powerUp&&p.powerUp!=='laser'){
-    p.puTimer--;
-    if(p.powerUp==='chain')tickChain(p);
-    if(p.powerUp==='shield')p.invincible=Math.max(p.invincible,2);// keep invincible
-    if(p.puTimer<=0){p.powerUp=null;p.puTimer=0;}
-  }
-  // Wind push ticks
-  if(p.powerUp==='wind'&&p.puTimer>550){// trigger once on pickup
-    p.puTimer=599;
-    fireWind(p);
-  }
-  // Freeze ticks
-  if(p.powerUp==='freeze'&&p.puTimer>550){
-    p.puTimer=599;
-    fireFreeze(p);
+
+  // Tick duration power-ups
+  if(p.powerUp){
+    if(p.powerUp==='shield')p.invincible=Math.max(p.invincible,2);
+    if(p.powerUp==='ghost')p.invincible=Math.max(p.invincible,2);
+    if(PU_DURATIONS[p.powerUp]>0){
+      p.puTimer--;
+      if(p.puTimer<=0){p.powerUp=null;p.puTimer=0;if(!p.isBot)updateFireBtn();}
+    }
   }
 }
 
-function fireLaser(p){
+function firePowerUp(p){
+  if(!p||!p.powerUp)return;
+  const type=p.powerUp;
+  if(type==='shield'||type==='ghost')return; // already active, no fire needed
+  p.powerUp=null;p.puTimer=0;
+  if(!p.isBot)updateFireBtn();
+  if(type==='nova')fireNova(p);
+  else if(type==='homing')fireHoming(p);
+  else if(type==='freeze')fireFreeze(p);
+  else if(type==='double')fireDouble(p);
+}
+
+function fireNova(p){
+  sfxWind();
+  spawnBurst(p.x,p.y,'#ff6600',40);
+  players.forEach(q=>{
+    if(q.id===p.id||!q.alive||q.respawning||q.invincible>0)return;
+    const dx=q.x-p.x,dy=q.y-p.y,d=Math.sqrt(dx*dx+dy*dy);
+    if(d<200){const f=(1-d/200)*16;q.vx+=dx/d*f;q.vy+=dy/d*f;}
+  });
+  particles.push({type:'nova',x:p.x,y:p.y,life:30,maxLife:30,r:0});
+}
+
+function fireHoming(p){
   sfxLaser();
-  const dir=p.facing;
+  // Find nearest alive enemy
+  let target=null,minD=9999;
   players.forEach(q=>{
     if(q.id===p.id||!q.alive||q.respawning)return;
-    if(Math.abs(q.y-p.y)<40&&Math.sign(q.x-p.x)===dir){
-      if(q.invincible<=0){hitShip(q,p);}
-    }
+    const d=dst(p,q);if(d<minD){minD=d;target=q;}
   });
-  particles.push({type:'laser',x:p.x,y:p.y,dir,life:40,maxLife:40,color:'#ff2200'});
-  p.powerUp=null;
-}
-
-function fireWind(p){
-  sfxWind();
-  players.forEach(q=>{
-    if(q.id===p.id||!q.alive)return;
-    const dx=q.x-p.x,dy=q.y-p.y,d=Math.sqrt(dx*dx+dy*dy);
-    if(d<180){const f=(1-d/180)*12;q.vx+=dx/d*f;q.vy+=dy/d*f;}
-  });
+  if(!target)return;
+  // Spawn homing projectile
+  particles.push({type:'homing',x:p.x,y:p.y,tx:target.id,vx:p.facing*6,vy:-2,life:120,maxLife:120,r:8,color:'#ff4400',owner:p.id});
 }
 
 function fireFreeze(p){
   sfxFreeze();
+  let target=null,minD=9999;
   players.forEach(q=>{
-    if(q.id===p.id||!q.alive)return;
-    const d=dst(p,q);
-    if(d<160){q.vx*=.1;q.vy*=.1;q.invincible=Math.max(q.invincible,1);
-      // Visual freeze tag
-      q._frozen=(q._frozen||0)+120;}
+    if(q.id===p.id||!q.alive||q.respawning)return;
+    const d=dst(p,q);if(d<minD){minD=d;target=q;}
   });
+  if(!target)return;
+  target._frozen=(target._frozen||0)+180; // 3 seconds
+  target.vx*=0.05;target.vy*=0.05;
+  spawnBurst(target.x,target.y,'#aaddff',20);
+}
+
+function fireDouble(p){
+  sfxHit();
+  spawnBurst(p.x,p.y,'#ffcc00',30);
+  // Hit everyone on both sides simultaneously
+  players.forEach(q=>{
+    if(q.id===p.id||!q.alive||q.respawning||q.invincible>0)return;
+    const dx=Math.abs(q.x-p.x),dy=Math.abs(q.y-p.y);
+    if(dx<120&&dy<40){
+      hitShip(q,p);
+    }
+  });
+  particles.push({type:'double',x:p.x,y:p.y,life:25,maxLife:25});
+}
+
+function updateFireBtn(){
+  const btn=document.getElementById('btnFire');
+  const icon=document.getElementById('fireIcon');
+  const lbl=document.getElementById('fireLabel');
+  if(!btn)return;
+  const p=players[0];
+  if(p&&p.powerUp){
+    btn.classList.add('has-pu');
+    icon.textContent=PU_ICONS[p.powerUp];
+    lbl.textContent=PU_NAMES[p.powerUp];
+    // Duration powers show as active, not fireable
+    if(p.powerUp==='shield'||p.powerUp==='ghost'){
+      lbl.textContent='ACTIVE';
+    }
+  } else {
+    btn.classList.remove('has-pu');
+    icon.textContent='🔥';
+    lbl.textContent='FIRE';
+  }
 }
 
 let chainAngle=0;
@@ -1153,8 +1220,27 @@ function spawnBurst(x,y,col,n){
   for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,s=1+Math.random()*7;particles.push({x:x+(Math.random()-.5)*18,y:y+(Math.random()-.5)*18,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:40+Math.random()*40,ml:80,r:3+Math.random()*8,color:Math.random()<.5?col:'#ff6600',type:'e'});}
 }
 function updateParticles(){
-  particles=particles.filter(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.05;p.vx*=.96;p.vy*=.96;p.life--;return p.life>0;});
-  // Tick frozen timers
+  particles=particles.filter(p=>{
+    p.life--;
+    if(p.type==='homing'){
+      // Track target
+      const tgt=players.find(q=>q.id===p.tx&&q.alive&&!q.respawning);
+      if(tgt){const dx=tgt.x-p.x,dy=tgt.y-p.y,d=Math.sqrt(dx*dx+dy*dy);p.vx+=dx/d*1.2;p.vy+=dy/d*1.2;const spd=Math.sqrt(p.vx*p.vx+p.vy*p.vy);if(spd>9){p.vx=p.vx/spd*9;p.vy=p.vy/spd*9;}}
+      p.x+=p.vx;p.y+=p.vy;
+      // Hit check
+      const tgt2=players.find(q=>q.id===p.tx&&q.alive&&!q.respawning&&q.invincible<=0);
+      if(tgt2&&dst2(p.x,p.y,tgt2.x,tgt2.y)<28*28){
+        const owner=players.find(q=>q.id===p.owner);
+        hitShip(tgt2,owner||tgt2);
+        return false;
+      }
+      return p.life>0;
+    }
+    if(p.type==='nova'){p.r+=8;return p.life>0;}
+    if(p.type==='double'){return p.life>0;}
+    p.x+=p.vx;p.y+=p.vy;p.vy+=.05;p.vx*=.96;p.vy*=.96;
+    return p.life>0;
+  });
   players.forEach(p=>{if(p._frozen>0)p._frozen--;});
 }
 
@@ -1377,6 +1463,35 @@ function render(){
     cx.globalAlpha=1;cx.restore();
   });
 
+  // Nova ring
+  particles.filter(p=>p.type==='nova').forEach(p=>{
+    const alpha=p.life/p.maxLife;
+    cx.save();cx.globalAlpha=alpha*0.7;cx.shadowColor='#ff6600';cx.shadowBlur=24;
+    cx.strokeStyle='#ff9900';cx.lineWidth=4;
+    cx.beginPath();cx.arc(p.x,p.y,p.r,0,Math.PI*2);cx.stroke();
+    cx.globalAlpha=1;cx.restore();
+  });
+
+  // Homing projectile
+  particles.filter(p=>p.type==='homing').forEach(p=>{
+    const alpha=p.life/p.maxLife;
+    cx.save();cx.globalAlpha=alpha;cx.shadowColor='#ff4400';cx.shadowBlur=16;
+    cx.fillStyle='#ff6600';cx.beginPath();cx.arc(p.x,p.y,8,0,Math.PI*2);cx.fill();
+    cx.fillStyle='#ffcc00';cx.beginPath();cx.arc(p.x,p.y,4,0,Math.PI*2);cx.fill();
+    cx.globalAlpha=1;cx.restore();
+  });
+
+  // Double lance burst
+  particles.filter(p=>p.type==='double').forEach(p=>{
+    const alpha=p.life/p.maxLife;
+    const spread=80*(1-alpha);
+    cx.save();cx.globalAlpha=alpha;cx.shadowColor='#ffcc00';cx.shadowBlur=20;
+    cx.strokeStyle='#ffee00';cx.lineWidth=5;
+    cx.beginPath();cx.moveTo(p.x-spread,p.y);cx.lineTo(p.x-spread-60,p.y-8);cx.stroke();
+    cx.beginPath();cx.moveTo(p.x+spread,p.y);cx.lineTo(p.x+spread+60,p.y-8);cx.stroke();
+    cx.globalAlpha=1;cx.restore();
+  });
+
   // Particles
   particles.filter(p=>p.type!=='laser').forEach(p=>{
     const alpha=p.life/p.ml;
@@ -1445,9 +1560,13 @@ function render(){
       cx.beginPath();cx.arc(cx2,cy2,10,0,Math.PI*2);cx.fill();cx.shadowBlur=0;
     }
 
+    // Ghost effect — translucent ship
+    if(p.powerUp==='ghost'){cx.globalAlpha=0.35;}
+
     // Ship
     cx.save();cx.translate(p.x,p.y);cx.translate(-20,-5);
     drawShip(cx,p.ship,0,0,.62,p.hits,p.facing===1);cx.restore();
+    cx.globalAlpha=1;
 
     // Battery bar
     const bw=36,bx=p.x-bw/2,by=p.y-40,bpct=p.battery/100;
