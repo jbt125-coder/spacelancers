@@ -565,7 +565,7 @@ window.addEventListener('resize',()=>{initStars();if(gameRunning){resizeCv();bgC
 const cv=document.getElementById('gameCanvas');
 const cx=cv.getContext('2d');
 let W,H,gameRunning=false,gameLoop=null,tick=0;
-let players=[],particles=[],platforms=[],docks=[],blackHoles=[],powerUps=[],warpCores=[],courier=null,bgCache=null;
+let players=[],particles=[],platforms=[],docks=[],blackHoles=[],powerUps=[],warpCores=[],scorePopups=[],courier=null,bgCache=null;
 
 const GRAV=0.05,FWD=0.18,FLAP=-0.28,MAXSPD=4.5,BOUNCE=.35,FRICT=.985;
 const LANCE_HIT=28,INV_FRAMES=30,MAX_LIVES=3;  // INV_FRAMES=30 = 0.5s brief flash only
@@ -616,6 +616,7 @@ function spawnPlayers(){
 
 // ── INPUT STATE ──
 const inp={left:false,right:false,flap:false};
+let lastThrustSfx=0;
 
 const SHIP_SYMBOLS=['⚡','💀','⭐','🎱','🌔','🔥','👑','☄️','🪩','☠️'];
 
@@ -727,7 +728,6 @@ function applyInput(p){
   if(inp.right){p.facing=1;if(p.battery>0){p.vx+=FWD*(p.ship.speed/3);sfxThrustOnce(p);}}
   if(inp.flap&&p.battery>0){p.vy+=FLAP;sfxThrustOnce(p);}
 }
-let scorePopups=[];
 function spawnScorePopup(x,y,pts,color){
   scorePopups.push({x,y,pts,color,life:90,vy:-1.2});
 }
