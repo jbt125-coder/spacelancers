@@ -565,10 +565,10 @@ window.addEventListener('resize',()=>{initStars();if(gameRunning){resizeCv();bgC
 const cv=document.getElementById('gameCanvas');
 const cx=cv.getContext('2d');
 let W,H,gameRunning=false,gameLoop=null,tick=0;
-let players=[],particles=[],platforms=[],docks=[],blackHoles=[],powerUps=[],courier=null,bgCache=null;
+let players=[],particles=[],platforms=[],docks=[],blackHoles=[],powerUps=[],warpCores=[],courier=null,bgCache=null;
 
 const GRAV=0.05,FWD=0.18,FLAP=-0.28,MAXSPD=4.5,BOUNCE=.35,FRICT=.985;
-const LANCE_HIT=28,INV_FRAMES=150,MAX_LIVES=3;  // 150 = 2.5s at 60fps
+const LANCE_HIT=28,INV_FRAMES=30,MAX_LIVES=3;  // INV_FRAMES=30 = 0.5s brief flash only
 const CHARGE_RATE=0.3,DRAIN_RATE=0.0165,CHARGE_CD=600; // drain: ~60s to empty at 60fps
 
 function resizeCv(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
@@ -609,6 +609,7 @@ function spawnPlayers(){
       powerUp:null,puTimer:0,
       isBot:pIsBot[p],
       aiLevel:pIsBot[p]?randBotLevel():0,
+      score:0,
     });
   }
 }
@@ -714,6 +715,8 @@ function update(){
   updateParticles();
   tickCourier();
   tickPowerUpDrops();
+  tickWarpCores();
+  scorePopups=scorePopups.filter(s=>{s.y+=s.vy;s.life--;return s.life>0;});
   sfxUpdate();
   checkWin();
 }
@@ -724,7 +727,10 @@ function applyInput(p){
   if(inp.right){p.facing=1;if(p.battery>0){p.vx+=FWD*(p.ship.speed/3);sfxThrustOnce(p);}}
   if(inp.flap&&p.battery>0){p.vy+=FLAP;sfxThrustOnce(p);}
 }
-let lastThrustSfx=0;
+let scorePopups=[];
+function spawnScorePopup(x,y,pts,color){
+  scorePopups.push({x,y,pts,color,life:90,vy:-1.2});
+}
 function sfxThrustOnce(p){
   if(!p.isBot&&Date.now()-lastThrustSfx>60){lastThrustSfx=Date.now();sfxThrust();}
 }
@@ -854,45 +860,103 @@ function checkLance(){
       if(a===b)continue;
       const pa=players[a],pb=players[b];
       if(!pa.alive||!pb.alive||pa.respawning||pb.respawning)continue;
+      if(pa.invincible>0||pb.invincible>0)continue;
       if(pb.docked)continue;
-      const segs=Math.max(0,pa.ship.maxHits-pa.hits);
-      const llen=20+segs*8;
+      const llen=32; // fixed lance length — 1 lance, no segments
       const lx=pa.x+pa.facing*llen,ly=pa.y-6;
       if(dst2(lx,ly,pb.x,pb.y)<LANCE_HIT*LANCE_HIT){
-        // Height advantage: lower y = higher screen pos = wins
+        // Height advantage: lower y = higher on screen = wins
         const heightDiff=pb.y-pa.y;
         if(heightDiff<-12){// pb is higher — pa loses
-          if(pa.invincible<=0)hitShip(pa,pb);
+          hitShip(pa,pb);
         }else{
-          if(pb.invincible<=0)hitShip(pb,pa);
+          hitShip(pb,pa);
         }
       }
     }
   }
 }
 
+const WARP_COLORS=['#ff0044','#ff6600','#ffee00','#00ff88','#00cfff','#aa44ff','#ff44cc'];
+
+function spawnWarpCore(x,y,color){
+  warpCores.push({
+    x,y,
+    vx:(Math.random()-.5)*4,
+    vy:-4-Math.random()*2,
+    color:WARP_COLORS[Math.floor(Math.random()*WARP_COLORS.length)],
+    t:0,
+    onGround:false,
+  });
+}
+
 function hitShip(victim,attacker){
-  victim.hits++;
-  victim.invincible=INV_FRAMES;
   sfxHit();
-  spawnSparks(victim.x,victim.y,victim.color);
-  const bd=victim.x>=attacker.x?1:-1;
-  victim.vx=bd*5.5;victim.vy=-3.5;
-  updateHUD();
-  if(victim.hits>=victim.ship.maxHits){spawnBurst(victim.x,victim.y,victim.color,50);loseLife(victim);}
+  spawnBurst(victim.x,victim.y,victim.color,50);
+  spawnWarpCore(victim.x,victim.y,victim.color);
+  // Attacker scores — tracked in loseLife
+  victim.invincible=INV_FRAMES;
+  loseLife(victim,attacker);
+}
+
+// ── WARP CORE PHYSICS & PICKUP ──
+function tickWarpCores(){
+  warpCores=warpCores.filter(wc=>{
+    wc.t++;
+    wc.vy+=GRAV;
+    wc.vx*=0.99;wc.vy*=0.99;
+    wc.x+=wc.vx;wc.y+=wc.vy;
+    wc.onGround=false;
+
+    // Floor bounce
+    if(wc.y>H-20){wc.y=H-20;wc.vy*=-0.5;wc.vx*=0.85;wc.onGround=true;}
+    // Platform bounce
+    platforms.forEach(pl=>{
+      if(wc.x>pl.x&&wc.x<pl.x+pl.w&&wc.vy>0&&wc.y+8>pl.y&&wc.y<pl.y+pl.h+10){
+        wc.y=pl.y-8;wc.vy*=-0.45;wc.vx*=0.85;wc.onGround=true;
+      }
+    });
+    // Wrap sides
+    if(wc.x<-20)wc.x=W+20;
+    if(wc.x>W+20)wc.x=-20;
+
+    // Black hole absorption
+    for(const bh of blackHoles){
+      if(dst2(wc.x,wc.y,bh.x,bh.y)<bh.r*bh.r){return false;}
+      // Pull
+      const dx=bh.x-wc.x,dy=bh.y-wc.y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<180){const f=(1-d/180)*.4;wc.vx+=dx/d*f;wc.vy+=dy/d*f;}
+    }
+
+    // Player pickup
+    for(const p of players){
+      if(!p.alive||p.respawning)continue;
+      if(dst2(p.x,p.y,wc.x,wc.y)<30*30){
+        const inAir=!p.onGround;
+        const pts=inAir?500:250;
+        p.score+=pts;
+        spawnScorePopup(wc.x,wc.y,pts,wc.color);
+        sfxPickup();
+        updateHUD();
+        return false; // remove core
+      }
+    }
+
+    return wc.t<1800; // disappear after 30s
+  });
 }
 
 // ── LIVES / RESPAWN ──
-function loseLife(p){
+function loseLife(p,attacker){
   if(!p.alive||p.respawning)return;
   p.lives--;
-  p.alive=true;// stay alive for respawn
+  p.alive=true;
   p.respawning=true;
-  p.respawnTimer=180;// 3 sec
+  p.respawnTimer=200;
   p.vx=0;p.vy=0;
-  p.x=-200;p.y=-200;// offscreen during respawn
-  if(p.lives<=0){p.alive=false;p.respawning=false;updateHUD();}
-  else updateHUD();
+  p.x=-200;p.y=-200;
+  if(p.lives<=0){p.alive=false;p.respawning=false;}
+  updateHUD();
 }
 
 function tickRespawn(p){
@@ -900,17 +964,25 @@ function tickRespawn(p){
   if(p.respawnTimer<=0){
     p.respawning=false;
     p.hits=0;
-    p.battery=60;
-    p.invincible=300;// 5 sec invincible on respawn
-    // Spawn at last used dock
-    const dock=docks[p.lastDock]||docks[0];
-    p.x=dock.x+dock.w/2;
-    p.y=dock.y-40;
+    p.battery=80;
+    p.invincible=0; // NO auto-shield — shield is power-up only
+    // Find spawn spot farthest from other players
+    const candidates=[
+      {x:W*.2,y:H*.25},{x:W*.4,y:H*.2},{x:W*.6,y:H*.2},{x:W*.8,y:H*.25},
+      {x:W*.15,y:H*.4},{x:W*.85,y:H*.4},{x:W*.5,y:H*.15},
+    ];
+    let best=candidates[0],bestD=0;
+    candidates.forEach(c=>{
+      let minD=99999;
+      players.forEach(q=>{if(q.id!==p.id&&q.alive&&!q.respawning)minD=Math.min(minD,dst2(c.x,c.y,q.x,q.y));});
+      if(minD>bestD){bestD=minD;best=c;}
+    });
+    p.x=best.x;p.y=best.y;
     p.vx=0;p.vy=0;
     if(!p.isBot){
       const rm=document.getElementById('respawnMsg');
-      rm.textContent=p.name+' RESPAWNING!';rm.style.display='block';
-      setTimeout(()=>{rm.style.display='none';},1200);
+      rm.textContent='🛸 '+p.name+' — NEW LANCE!';rm.style.display='block';
+      setTimeout(()=>{rm.style.display='none';},1400);
     }
   }
 }
@@ -1070,7 +1142,7 @@ function stopGame(){
 }
 function resetGameState(){
   stopGame();
-  players=[];particles=[];powerUps=[];courier=null;
+  players=[];particles=[];powerUps=[];warpCores=[];scorePopups=[];courier=null;
   inp.left=false;inp.right=false;inp.flap=false;
   sfxChargeStop();
 }
@@ -1081,10 +1153,9 @@ function buildHUD(){
   players.forEach(p=>{
     const d=document.createElement('div');d.className='hud-p';d.id='hudp'+p.id;
     let lives='';for(let i=0;i<MAX_LIVES;i++)lives+='<div class="hud-life on" id="hl'+p.id+'_'+i+'" style="background:'+p.color+';color:'+p.color+'"></div>';
-    let lances='';for(let i=0;i<p.ship.maxHits;i++)lances+='<div class="hud-lance" id="hla'+p.id+'_'+i+'" style="background:'+p.color+'"></div>';
     d.innerHTML='<div class="hud-name" style="color:'+p.color+'">'+p.name+'</div>'+
       '<div class="hud-lives">'+lives+'</div>'+
-      '<div class="hud-lances">'+lances+'</div>'+
+      '<div id="hscore'+p.id+'" style="font-family:Orbitron,sans-serif;font-size:9px;color:'+p.color+';text-shadow:0 0 6px '+p.color+'">0 PTS</div>'+
       '<div class="hud-bat"><div class="hud-bat-fill" id="hbat'+p.id+'" style="width:100%;background:var(--ng)"></div></div>';
     hud.appendChild(d);
   });
@@ -1092,12 +1163,11 @@ function buildHUD(){
 function updateHUD(){
   players.forEach(p=>{
     for(let i=0;i<MAX_LIVES;i++){const e=document.getElementById('hl'+p.id+'_'+i);if(e){const on=i<p.lives;e.classList.toggle('on',on);e.style.background=on?p.color:'#333';e.style.color=on?p.color:'#333';}}
-    for(let i=0;i<p.ship.maxHits;i++){const e=document.getElementById('hla'+p.id+'_'+i);if(e){const on=i<(p.ship.maxHits-p.hits);e.style.background=on?p.color:'#222';e.style.boxShadow=on?'0 0 5px '+p.color:'none';}}
+    const sc=document.getElementById('hscore'+p.id);if(sc)sc.textContent=p.score+' PTS';
     const bat=document.getElementById('hbat'+p.id);
     if(bat){const pct=p.battery/100;bat.style.width=(pct*100)+'%';bat.style.background=pct>.55?'#00ff66':pct>.25?'#ffcc00':'#ff3333';}
-    // Shield countdown
     const nm=document.querySelector('#hudp'+p.id+' .hud-name');
-    if(nm){if(p.invincible>120){nm.textContent=p.name+' 🛡'+Math.ceil(p.invincible/60)+'s';nm.style.color='#fff';}else{nm.textContent=p.name+(p.powerUp?' '+PU_ICONS[p.powerUp]:'');nm.style.color=p.color;}}
+    if(nm){nm.textContent=p.name+(p.powerUp?' '+PU_ICONS[p.powerUp]:'');nm.style.color=p.color;}
   });
 }
 
@@ -1226,12 +1296,41 @@ function render(){
   });
   cx.globalAlpha=1;cx.shadowBlur=0;
 
+  // Warp cores
+  warpCores.forEach(wc=>{
+    const pulse=Math.sin(wc.t*.15)*0.3+0.7;
+    cx.save();cx.translate(wc.x,wc.y);
+    // Outer glow
+    cx.shadowColor=wc.color;cx.shadowBlur=18+pulse*10;
+    // Core ball
+    const g=cx.createRadialGradient(0,0,0,0,0,10);
+    g.addColorStop(0,'#ffffff');g.addColorStop(0.3,wc.color);g.addColorStop(1,'transparent');
+    cx.fillStyle=g;cx.beginPath();cx.arc(0,0,10,0,Math.PI*2);cx.fill();
+    // Ring
+    cx.strokeStyle=wc.color;cx.lineWidth=2;cx.globalAlpha=pulse;
+    cx.beginPath();cx.arc(0,0,14,0,Math.PI*2);cx.stroke();
+    cx.globalAlpha=1;cx.shadowBlur=0;
+    cx.restore();
+  });
+
+  // Score popups
+  scorePopups.forEach(s=>{
+    const alpha=s.life/90;
+    cx.globalAlpha=alpha;cx.shadowColor=s.color;cx.shadowBlur=10;
+    cx.fillStyle=s.color;cx.font='bold 14px Orbitron';cx.textAlign='center';
+    cx.fillText('+'+s.pts,s.x,s.y);
+    cx.globalAlpha=1;cx.shadowBlur=0;
+  });
+
   // Players
   players.forEach(p=>{
     if(!p.alive||p.respawning)return;
 
-    // Invincibility shield
-    if(p.invincible>0){
+    // Brief invincibility flash (no shield bubble — shield is power-up only)
+    if(p.invincible>0&&Math.floor(tick/3)%2===0)return; // skip render = flash effect
+
+    // Power-up shield only
+    if(p.powerUp==='shield'){
       const pulse=.5+.5*Math.sin(tick*.15);
       cx.beginPath();cx.arc(p.x,p.y-4,30+pulse*5,0,Math.PI*2);
       cx.fillStyle='rgba(0,180,255,'+(0.06+pulse*.05)+')';cx.fill();
