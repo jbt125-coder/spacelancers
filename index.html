@@ -647,7 +647,8 @@ function spawnPlayers(){
       id:p,ship,x:quadrants[p].x,y:quadrants[p].y,vx:0,vy:0,facing:1,
       hits:0,lives:MAX_LIVES,alive:true,
       color:PCOLS[p],name:PNAMES[p],
-      invincible:90,respawning:false,respawnTimer:0,lastDock:0, // 1.5s grace on spawn
+      invincible:90,respawning:false,respawnTimer:0,lastDock:0,
+      spawnGrace:true, // prevents flash during initial grace period
       battery:100,chargeCd:0,docked:false,onGround:false,
       powerUp:null,puTimer:0,
       isBot:pIsBot[p],
@@ -757,7 +758,7 @@ function update(){
     checkDocks(p);
     checkBlackHoles(p);
     tickPowerUp(p);
-    if(p.invincible>0)p.invincible--;
+    if(p.invincible>0){p.invincible--;if(p.invincible===0)p.spawnGrace=false;}
     if(p.chargeCd>0)p.chargeCd--;
   });
   checkLance();
@@ -911,7 +912,10 @@ function checkDocks(p){
 function checkBlackHoles(p){
   blackHoles.forEach(bh=>{
     const dx=bh.x-p.x,dy=bh.y-p.y,d=Math.sqrt(dx*dx+dy*dy);
-    if(d<200){const f=(1-d/200)*.55;p.vx+=dx/d*f;p.vy+=dy/d*f;}
+    // Center singularity (boardType 1) is weaker — it's unavoidable otherwise
+    const pullForce=boardType===1?0.18:0.28;
+    const pullRadius=boardType===1?140:200;
+    if(d<pullRadius){const f=(1-d/pullRadius)*pullForce;p.vx+=dx/d*f;p.vy+=dy/d*f;}
     if(d<bh.r){spawnBurst(p.x,p.y,p.color,28);loseLife(p);}
   });
 }
@@ -956,6 +960,7 @@ function spawnWarpCore(x,y,color){
 
 function hitShip(victim,attacker){
   sfxHit();
+  victim.spawnGrace=false; // now combat invincible — will flash
   spawnBurst(victim.x,victim.y,victim.color,50);
   spawnWarpCore(victim.x,victim.y,victim.color);
   // Attacker scores — tracked in loseLife
@@ -1029,7 +1034,8 @@ function tickRespawn(p){
     p.respawning=false;
     p.hits=0;
     p.battery=80;
-    p.invincible=0; // NO auto-shield — shield is power-up only
+    p.invincible=90;
+    p.spawnGrace=true;
     // Find spawn spot farthest from other players
     const candidates=[
       {x:W*.2,y:H*.25},{x:W*.4,y:H*.2},{x:W*.6,y:H*.2},{x:W*.8,y:H*.25},
@@ -1530,8 +1536,8 @@ function render(){
   players.forEach(p=>{
     if(!p.alive||p.respawning)return;
 
-    // Brief invincibility flash (no shield bubble — shield is power-up only)
-    if(p.invincible>0&&Math.floor(tick/3)%2===0)return; // skip render = flash effect
+    // Flash only during COMBAT invincibility (after being hit), not spawn grace
+    if(p.invincible>0&&!p.spawnGrace&&Math.floor(tick/3)%2===0)return;
 
     // Power-up shield only
     if(p.powerUp==='shield'){
