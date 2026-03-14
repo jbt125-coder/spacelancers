@@ -1395,11 +1395,13 @@ function loop(){
   gameLoop=requestAnimationFrame(loop);
 }
 
+let controlsBound=false;
+
 function initGame(){
   // Randomize bot ships each wave
   for(let p=1;p<4;p++){if(pIsBot[p])pShipIdx[p]=Math.floor(Math.random()*SHIPS.length);}
   resizeCv();bgCache=null;
-  gameRunning=false;tick=0;particles=[];powerUps=[];courier=null;chainAngle=0;
+  gameRunning=false;tick=0;particles=[];powerUps=[];warpCores=[];scorePopups=[];courier=null;chainAngle=0;
   puDropTimer=Math.floor(Math.random()*600)+1200;
   buildArena();spawnPlayers();buildHUD();updateJoystickSymbol();
   document.getElementById('hud').classList.add('on');
@@ -1407,7 +1409,7 @@ function initGame(){
   document.getElementById('overlay').classList.remove('on');
   document.getElementById('cogBtn').classList.add('on');
   if(mpMode==='host')document.getElementById('mpBadge').style.display='block';
-  bindControls();
+  if(!controlsBound){bindControls();controlsBound=true;}
   // Render one frozen frame so player can see arena before countdown ends
   render();
 }
