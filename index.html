@@ -349,10 +349,12 @@ canvas{display:block;background:var(--bg);}
   </div>
   <div id="gcArena"><canvas id="gcMini"></canvas></div>
   <div class="gc-ctrls">
-    <div class="dpad">
-      <div class="dp-btn dp-l" id="gcDpadL">◀</div>
-      <div class="dp-btn dp-c"></div>
-      <div class="dp-btn dp-r" id="gcDpadR">▶</div>
+    <div class="joystick-wrap" id="gcJoystickWrap">
+      <div class="joystick-base">
+        <div class="joystick-thumb" id="gcJoystickThumb">
+          <div class="joystick-symbol" id="gcJoystickSymbol">🎮</div>
+        </div>
+      </div>
     </div>
     <div class="act-btn flap" id="gcFlap">
       <span class="bi">▲</span><span>FLAP</span>
@@ -653,7 +655,7 @@ function spawnPlayers(){
       powerUp:null,puTimer:0,
       isBot:pIsBot[p],
       aiLevel:pIsBot[p]?randBotLevel():0,
-      score:0,
+      score:p===0?soloScores[0]:0,
       lanceStreak:0, // consecutive lances broken without losing own
     });
   }
@@ -826,6 +828,18 @@ function botUpdate(p){
     const avoidR=80+lvl*14;
     if(dst2(p.x,p.y,bh.x,bh.y)<avoidR*avoidR)p.vy+=FLAP*(0.5+aggr*.5);
   });
+
+  // Bot fires power-up when holding one and enemy is close enough
+  if(p.powerUp&&target){
+    const fireChance=0.008+aggr*0.012; // higher bots fire more decisively
+    const nearEnough=minD<180+lvl*10;
+    if(nearEnough&&Math.random()<fireChance){
+      if(p.powerUp==='nova'||p.powerUp==='double'||p.powerUp==='freeze')firePowerUp(p);
+      else if(p.powerUp==='homing'&&minD<300)firePowerUp(p);
+      // shield/ghost: fire when low on health (last lance)
+      else if((p.powerUp==='shield'||p.powerUp==='ghost')&&p.lives<=1)firePowerUp(p);
+    }
+  }
 }
 
 // ── PHYSICS ──
@@ -1229,16 +1243,6 @@ function updateFireBtn(){
   }
 }
 
-let chainAngle=0;
-function tickChain(p){
-  chainAngle+=.12;
-  const cx2=p.x+Math.cos(chainAngle)*50;
-  const cy2=p.y+Math.sin(chainAngle)*50;
-  players.forEach(q=>{
-    if(q.id===p.id||!q.alive||q.respawning)return;
-    if(dst2(cx2,cy2,q.x,q.y)<22*22&&q.invincible<=0)hitShip(q,p);
-  });
-}
 
 // ── PARTICLES ──
 function spawnThrust(p){
@@ -1296,20 +1300,25 @@ function checkWin(){
       document.getElementById('mpBadge').style.display='none';
 
       if(isSoloWin){
-        // Save score then advance to next wave
         soloScores[0]=winner.score;
         waveNum++;
         sfxWin();
         document.getElementById('ovTitle').textContent='WAVE '+waveNum+' CLEAR!';
-        document.getElementById('ovSub').textContent='▶ NEXT: '+BOARD_NAMES[Math.floor(Math.random()*4)];
+        document.getElementById('ovSub').innerHTML=
+          winner.name+' &nbsp;'+winner.score+' PTS<br>'+
+          '<span style="font-size:10px;color:#666;letter-spacing:.1em">▶ NEXT: '+BOARD_NAMES[Math.floor(Math.random()*4)]+'</span>';
         document.getElementById('overlay').classList.add('on');
-        // Replace Play Again button with NEXT WAVE
         document.querySelector('#overlay .btn.yl').textContent='🚀 NEXT WAVE';
         document.querySelector('#overlay .btn.yl').onclick=nextWave;
       } else {
         sfxLose();
+        // Build score summary for all players
+        const scoreLine=players
+          .slice().sort((a,b)=>b.score-a.score)
+          .map(p=>'<span style="color:'+p.color+'">'+p.name+' '+p.score+'</span>')
+          .join('&nbsp; ');
         document.getElementById('ovTitle').textContent=winner?winner.name+' WINS!':'DRAW!';
-        document.getElementById('ovSub').textContent=winner?winner.ship.name+' — Last Jockey':'Everyone exploded!';
+        document.getElementById('ovSub').innerHTML=scoreLine;
         document.getElementById('overlay').classList.add('on');
         document.querySelector('#overlay .btn.yl').textContent='⚔ Play Again';
         document.querySelector('#overlay .btn.yl').onclick=goShipSelect;
@@ -1320,11 +1329,8 @@ function checkWin(){
 
 function nextWave(){
   document.getElementById('overlay').classList.remove('on');
-  // Keep P1 ship, reshuffle bots, preserve score
-  const savedScore=soloScores[0];
+  soloScores[0]=players[0]?players[0].score:soloScores[0];
   startCountdown();
-  // Restore score after initGame resets players
-  setTimeout(()=>{if(players[0])players[0].score=savedScore;updateHUD();},50);
 }
 
 function stopGame(){
@@ -1585,16 +1591,6 @@ function render(){
       cx.beginPath();cx.arc(p.x,p.y-4,28,0,Math.PI*2);cx.stroke();
     }
 
-    // Ball and chain
-    if(p.powerUp==='chain'){
-      const cx2=p.x+Math.cos(chainAngle)*50;
-      const cy2=p.y+Math.sin(chainAngle)*50;
-      cx.strokeStyle=p.color+'aa';cx.lineWidth=2;
-      cx.beginPath();cx.moveTo(p.x,p.y);cx.lineTo(cx2,cy2);cx.stroke();
-      cx.fillStyle=p.color;cx.shadowColor=p.color;cx.shadowBlur=8;
-      cx.beginPath();cx.arc(cx2,cy2,10,0,Math.PI*2);cx.fill();cx.shadowBlur=0;
-    }
-
     // Ghost effect — translucent ship
     if(p.powerUp==='ghost'){cx.globalAlpha=0.35;}
 
@@ -1644,7 +1640,7 @@ function initGame(){
   // Randomize bot ships each wave
   for(let p=1;p<4;p++){if(pIsBot[p])pShipIdx[p]=Math.floor(Math.random()*SHIPS.length);}
   resizeCv();bgCache=null;
-  gameRunning=false;tick=0;particles=[];powerUps=[];warpCores=[];scorePopups=[];courier=null;chainAngle=0;
+  gameRunning=false;tick=0;particles=[];powerUps=[];warpCores=[];scorePopups=[];courier=null;
   puDropTimer=Math.floor(Math.random()*600)+1200;
   buildArena();spawnPlayers();buildHUD();updateJoystickSymbol();
   document.getElementById('hud').classList.add('on');
@@ -1754,9 +1750,22 @@ function showGuestCtrl(){
   document.getElementById('gcLabel').textContent='P'+(mpGuestIdx+1)+' — '+ship.name.toUpperCase();
   document.getElementById('gcLabel').style.color=PCOLS[mpGuestIdx];
   updateGcLances({hits:0,ship:{maxHits:ship.maxHits},color:PCOLS[mpGuestIdx]});
-  function addT(el,on,off){el.addEventListener('touchstart',e=>{e.preventDefault();on();},{passive:false});el.addEventListener('touchend',e=>{e.preventDefault();off();},{passive:false});el.addEventListener('mousedown',on);el.addEventListener('mouseup',off);el.addEventListener('mouseleave',off);}
-  addT(document.getElementById('gcDpadL'),()=>mpGuestInput.left=true,()=>mpGuestInput.left=false);
-  addT(document.getElementById('gcDpadR'),()=>mpGuestInput.right=true,()=>mpGuestInput.right=false);
+  function addT(el,on,off){if(!el)return;el.addEventListener('touchstart',e=>{e.preventDefault();on();},{passive:false});el.addEventListener('touchend',e=>{e.preventDefault();off();},{passive:false});el.addEventListener('mousedown',on);el.addEventListener('mouseup',off);el.addEventListener('mouseleave',off);}
+  // Guest joystick
+  const gcWrap=document.getElementById('gcJoystickWrap');
+  const gcThumb=document.getElementById('gcJoystickThumb');
+  const gcSym=document.getElementById('gcJoystickSymbol');
+  if(gcSym)gcSym.textContent=SHIP_SYMBOLS[gShipIdx]||'🎮';
+  if(gcWrap&&gcThumb){
+    const RADIUS=70;const DEAD=12;let jActive=false,jId=null;
+    function gcMove(cx,cy){const rect=gcWrap.getBoundingClientRect();const ox=cx-(rect.left+RADIUS);const clamp=Math.min(Math.abs(ox),RADIUS-26)*Math.sign(ox);gcThumb.style.transform=`translate(calc(-50% + ${clamp}px), -50%)`;mpGuestInput.left=ox<-DEAD;mpGuestInput.right=ox>DEAD;gcThumb.classList.toggle('active',mpGuestInput.left||mpGuestInput.right);}
+    function gcRelease(){jActive=false;jId=null;mpGuestInput.left=false;mpGuestInput.right=false;gcThumb.style.transform='translate(-50%,-50%)';gcThumb.classList.remove('active');}
+    gcWrap.addEventListener('touchstart',e=>{e.preventDefault();if(jActive)return;const t=e.changedTouches[0];jActive=true;jId=t.identifier;gcMove(t.clientX,t.clientY);},{passive:false});
+    gcWrap.addEventListener('touchmove',e=>{e.preventDefault();for(const t of e.changedTouches){if(t.identifier===jId)gcMove(t.clientX,t.clientY);}},{passive:false});
+    gcWrap.addEventListener('touchend',e=>{e.preventDefault();for(const t of e.changedTouches){if(t.identifier===jId)gcRelease();}},{passive:false});
+    gcWrap.addEventListener('touchcancel',e=>{e.preventDefault();gcRelease();},{passive:false});
+    let md=false;gcWrap.addEventListener('mousedown',e=>{md=true;gcMove(e.clientX,e.clientY);});gcWrap.addEventListener('mousemove',e=>{if(md)gcMove(e.clientX,e.clientY);});gcWrap.addEventListener('mouseup',()=>{md=false;gcRelease();});gcWrap.addEventListener('mouseleave',()=>{md=false;gcRelease();});
+  }
   addT(document.getElementById('gcFlap'),()=>mpGuestInput.flap=true,()=>mpGuestInput.flap=false);
   const mc=document.getElementById('gcMini');mc.width=window.innerWidth;mc.height=200;
   setInterval(()=>{if(mpMode==='guest'&&mpConnected)mpSendToHost({type:'input',...mpGuestInput});},1000/30);
