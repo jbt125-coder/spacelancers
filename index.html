@@ -519,7 +519,7 @@ function renderGuestPreview(){
 // ════════════════════════════════════════════════════════
 //  SCREEN MANAGEMENT
 // ════════════════════════════════════════════════════════
-function goShipSelect(){resetGameState();showScreen('shipSelectScreen');buildShipSelect();}
+function goShipSelect(){resetGameState();waveNum=0;soloScores=[0,0,0,0];showScreen('shipSelectScreen');buildShipSelect();}
 function showHowTo(){
   document.getElementById('ovTitle').textContent='HOW TO PLAY';
   document.getElementById('ovSub').innerHTML=
@@ -573,26 +573,53 @@ const CHARGE_RATE=0.3,DRAIN_RATE=0.0165,CHARGE_CD=600; // drain: ~60s to empty a
 
 function resizeCv(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
 
+let waveNum=0;
+let boardType=0; // 0=corners, 1=center, 2=open, 3=walled
+
 function buildArena(){
-  // Floating platforms (no charging — decorative/tactical)
-  platforms=[
-    {x:W*.22,y:H*.55,w:W*.14,h:12},
-    {x:W*.64,y:H*.55,w:W*.14,h:12},
-    {x:W*.40,y:H*.38,w:W*.20,h:12},
-    {x:W*.08,y:H*.72,w:W*.12,h:12},
-    {x:W*.80,y:H*.72,w:W*.12,h:12},
-    {x:W*.35,y:H*.78,w:W*.30,h:12},
-  ];
-  // Two dock/recharge bays — left-mid and right-mid (like Joust lava hands)
+  // Pick random board type each wave
+  boardType=Math.floor(Math.random()*4);
+
+  // Random platform layout — different each wave
+  const pw=()=>W*(0.10+Math.random()*0.10); // platform width 10-20% screen
+  const numPlats=4+Math.floor(Math.random()*4); // 4-7 platforms
+  platforms=[];
+  // Always place a few fixed ones for playability
+  platforms.push({x:W*.35,y:H*(0.35+Math.random()*0.15),w:W*0.30,h:12});
+  for(let i=1;i<numPlats;i++){
+    platforms.push({
+      x:W*(0.05+Math.random()*0.75),
+      y:H*(0.40+Math.random()*0.35),
+      w:pw(),h:12
+    });
+  }
+
+  // Docks always left+right mid
   docks=[
     {x:W*.02,y:H*.50,w:W*.08,h:16,charge:true,id:0},
     {x:W*.90,y:H*.50,w:W*.08,h:16,charge:true,id:1},
   ];
-  // Black holes bottom corners
-  blackHoles=[
-    {x:W*.10,y:H*.92,r:26,pt:0},
-    {x:W*.90,y:H*.92,r:26,pt:Math.PI},
-  ];
+
+  // Board type determines black holes and walls
+  blackHoles=[];
+  if(boardType===0){
+    // Classic: black holes bottom corners
+    blackHoles=[
+      {x:W*.10,y:H*.92,r:26,pt:0},
+      {x:W*.90,y:H*.92,r:26,pt:Math.PI},
+    ];
+  } else if(boardType===1){
+    // One black hole center-screen
+    blackHoles=[
+      {x:W*.50,y:H*.55,r:30,pt:0},
+    ];
+  } else if(boardType===2){
+    // Open — no black holes, ships wrap top↔bottom
+    blackHoles=[];
+  } else if(boardType===3){
+    // Walled — no black holes, solid walls all sides (handled in checkWrap)
+    blackHoles=[];
+  }
 }
 
 function spawnPlayers(){
@@ -792,10 +819,25 @@ function updatePhysics(p){
 
 // ── WRAP ──
 function checkWrap(p){
-  if(p.x<-40)p.x=W+40;
-  if(p.x>W+40)p.x=-40;
-  if(p.y<18){p.y=18;p.vy=Math.abs(p.vy)*BOUNCE;}
-  if(p.y>H+20)loseLife(p);
+  if(boardType===3){
+    // WALLED — bounce off all sides, drain 25% battery on hit
+    if(p.x<20){p.x=20;p.vx=Math.abs(p.vx)*BOUNCE;p.battery=Math.max(0,p.battery-25);}
+    if(p.x>W-20){p.x=W-20;p.vx=-Math.abs(p.vx)*BOUNCE;p.battery=Math.max(0,p.battery-25);}
+    if(p.y<18){p.y=18;p.vy=Math.abs(p.vy)*BOUNCE;p.battery=Math.max(0,p.battery-25);}
+    if(p.y>H-20){p.y=H-20;p.vy=-Math.abs(p.vy)*BOUNCE;p.battery=Math.max(0,p.battery-25);}
+  } else if(boardType===2){
+    // OPEN — wrap left/right AND top/bottom, no fall death
+    if(p.x<-40)p.x=W+40;
+    if(p.x>W+40)p.x=-40;
+    if(p.y<-40)p.y=H+40;  // wrap top to bottom
+    if(p.y>H+40)p.y=-40;  // wrap bottom to top
+  } else {
+    // CLASSIC / CENTER HOLE — wrap sides, die at bottom, bounce ceiling
+    if(p.x<-40)p.x=W+40;
+    if(p.x>W+40)p.x=-40;
+    if(p.y<18){p.y=18;p.vy=Math.abs(p.vy)*BOUNCE;}
+    if(p.y>H+20)loseLife(p);
+  }
 }
 
 // ── PLATFORMS (tactical, no charging) ──
@@ -1117,23 +1159,54 @@ function updateParticles(){
 }
 
 // ── WIN CHECK ──
+const BOARD_NAMES=['CORNER VOIDS','SINGULARITY','OPEN SPACE','WALLED ARENA'];
+let soloScores=[0,0,0,0]; // persists across waves
+
 function checkWin(){
   const alive=players.filter(p=>p.alive);
   if(alive.length<=1&&gameRunning){
     gameRunning=false;
     const winner=alive[0];
     if(mpMode==='host')mpBroadcastEnd(winner?winner.id:-1);
+
+    const isSoloWin=!mpMode&&winner&&winner.id===0;
+
     setTimeout(()=>{
-      document.getElementById('ovTitle').textContent=winner?winner.name+' WINS!':'DRAW!';
-      document.getElementById('ovSub').textContent=winner?winner.ship.name+' — Last Jockey':  'Everyone exploded!';
-      document.getElementById('overlay').classList.add('on');
       document.getElementById('hud').classList.remove('on');
       document.getElementById('controls').classList.remove('on');
       document.getElementById('cogBtn').classList.remove('on');
       document.getElementById('mpBadge').style.display='none';
-      if(winner&&winner.id===0)sfxWin();else sfxLose();
+
+      if(isSoloWin){
+        // Save score then advance to next wave
+        soloScores[0]=winner.score;
+        waveNum++;
+        sfxWin();
+        document.getElementById('ovTitle').textContent='WAVE '+waveNum+' CLEAR!';
+        document.getElementById('ovSub').textContent='▶ NEXT: '+BOARD_NAMES[Math.floor(Math.random()*4)];
+        document.getElementById('overlay').classList.add('on');
+        // Replace Play Again button with NEXT WAVE
+        document.querySelector('#overlay .btn.yl').textContent='🚀 NEXT WAVE';
+        document.querySelector('#overlay .btn.yl').onclick=nextWave;
+      } else {
+        sfxLose();
+        document.getElementById('ovTitle').textContent=winner?winner.name+' WINS!':'DRAW!';
+        document.getElementById('ovSub').textContent=winner?winner.ship.name+' — Last Jockey':'Everyone exploded!';
+        document.getElementById('overlay').classList.add('on');
+        document.querySelector('#overlay .btn.yl').textContent='⚔ Play Again';
+        document.querySelector('#overlay .btn.yl').onclick=goShipSelect;
+      }
     },1400);
   }
+}
+
+function nextWave(){
+  document.getElementById('overlay').classList.remove('on');
+  // Keep P1 ship, reshuffle bots, preserve score
+  const savedScore=soloScores[0];
+  startCountdown();
+  // Restore score after initGame resets players
+  setTimeout(()=>{if(players[0])players[0].score=savedScore;updateHUD();},50);
 }
 
 function stopGame(){
@@ -1144,6 +1217,7 @@ function resetGameState(){
   stopGame();
   players=[];particles=[];powerUps=[];warpCores=[];scorePopups=[];courier=null;
   inp.left=false;inp.right=false;inp.flap=false;
+  controlsBound=false;
   sfxChargeStop();
 }
 
@@ -1192,6 +1266,21 @@ function ensureBg(){
 
 function render(){
   ensureBg();cx.drawImage(bgCache,0,0);
+
+  // Board type walls
+  if(boardType===3){
+    // Walled arena — glowing borders all sides
+    cx.shadowColor='#ff6600';cx.shadowBlur=18;
+    cx.strokeStyle='#ff6600';cx.lineWidth=6;
+    cx.strokeRect(3,3,W-6,H-6);
+    cx.shadowBlur=0;
+  } else if(boardType===2){
+    // Open wrap — subtle top/bottom indicators
+    cx.strokeStyle='rgba(0,245,255,0.25)';cx.lineWidth=2;cx.setLineDash([12,8]);
+    cx.beginPath();cx.moveTo(0,2);cx.lineTo(W,2);cx.stroke();
+    cx.beginPath();cx.moveTo(0,H-2);cx.lineTo(W,H-2);cx.stroke();
+    cx.setLineDash([]);
+  }
 
   // Platforms
   platforms.forEach(pl=>{
