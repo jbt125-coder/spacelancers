@@ -518,7 +518,13 @@ function renderPreview(p){
 
 // Guest ship
 let gShipIdx=0;
-function guestShipDir(d){gShipIdx=(gShipIdx+d+SHIPS.length)%SHIPS.length;renderGuestPreview();}
+function guestShipDir(d){
+  gShipIdx=(gShipIdx+d+SHIPS.length)%SHIPS.length;
+  renderGuestPreview();
+  // Tell host about updated ship choice immediately
+  if(mpMode==='guest'&&mpConnected)
+    mpSendToHost({type:'shipChoice',shipIdx:gShipIdx,playerIdx:mpGuestIdx});
+}
 function renderGuestPreview(){
   const ship=SHIPS[gShipIdx];
   const cv=document.getElementById('guestPreview');if(!cv)return;
@@ -1314,9 +1320,20 @@ function checkWin(){
         document.getElementById('overlay').classList.add('on');
         document.querySelector('#overlay .btn.yl').textContent='🚀 NEXT WAVE';
         document.querySelector('#overlay .btn.yl').onclick=nextWave;
+      } else if(mpMode==='host'){
+        // MP Play Again — go back to ship select WITHOUT destroying peer connections
+        sfxLose();
+        const scoreLine=players
+          .slice().sort((a,b)=>b.score-a.score)
+          .map(p=>'<span style="color:'+p.color+'">'+p.name+' '+p.score+'</span>')
+          .join('&nbsp; ');
+        document.getElementById('ovTitle').textContent=winner?winner.name+' WINS!':'DRAW!';
+        document.getElementById('ovSub').innerHTML=scoreLine;
+        document.getElementById('overlay').classList.add('on');
+        document.querySelector('#overlay .btn.yl').textContent='⚔ Play Again';
+        document.querySelector('#overlay .btn.yl').onclick=mpPlayAgain;
       } else {
         sfxLose();
-        // Build score summary for all players
         const scoreLine=players
           .slice().sort((a,b)=>b.score-a.score)
           .map(p=>'<span style="color:'+p.color+'">'+p.name+' '+p.score+'</span>')
@@ -1335,6 +1352,24 @@ function nextWave(){
   document.getElementById('overlay').classList.remove('on');
   soloScores[0]=players[0]?players[0].score:soloScores[0];
   startCountdown();
+}
+
+function mpPlayAgain(){
+  // Go back to ship select without destroying peer connections
+  document.getElementById('overlay').classList.remove('on');
+  stopGame();
+  players=[];particles=[];powerUps=[];warpCores=[];scorePopups=[];courier=null;
+  inp.left=false;inp.right=false;inp.flap=false;
+  controlsBound=false;
+  sfxChargeStop();
+  document.getElementById('hud').classList.remove('on');
+  document.getElementById('controls').classList.remove('on');
+  document.getElementById('cogBtn').classList.remove('on');
+  document.getElementById('mpBadge').style.display='none';
+  // Tell guests to go back to waiting screen
+  mpConns.forEach(c=>mpSendTo(c,{type:'lobby'}));
+  showScreen('shipSelectScreen');
+  buildShipSelect();
 }
 
 function stopGame(){
@@ -1641,8 +1676,9 @@ function loop(){
 let controlsBound=false;
 
 function initGame(){
-  // Randomize bot ships each wave
+  // Only randomize ships for actual bots — not guest-controlled human slots
   for(let p=1;p<4;p++){if(pIsBot[p])pShipIdx[p]=Math.floor(Math.random()*SHIPS.length);}
+  // Guest ship choices (pShipIdx set via shipChoice message) are preserved above
   resizeCv();bgCache=null;
   gameRunning=false;tick=0;particles=[];powerUps=[];warpCores=[];scorePopups=[];courier=null;
   puDropTimer=Math.floor(Math.random()*600)+1200;
@@ -1667,6 +1703,10 @@ function startGame(){
 //  COUNTDOWN
 // ════════════════════════════════════════════════════════
 function startCountdown(){
+  // Tell guests to switch to their controller screen
+  if(mpMode==='host'){
+    mpConns.forEach((c,i)=>mpSendTo(c,{type:'start',playerIdx:i+1}));
+  }
   showScreen('gameScreen');
   initGame(); // build arena & show controls immediately
   const ce=document.getElementById('countdown'),ne=document.getElementById('cdNum');
@@ -1720,13 +1760,13 @@ function mpCleanup(){
 function mpCancelHost(){mpCleanup();resetToTitle();}
 function mpLaunch(){
   if(!mpConns.length){setMpSt('No guests connected!');return;}
-  // Tell guests to show their controller
-  mpConns.forEach((c,i)=>mpSendTo(c,{type:'start',playerIdx:i+1}));
   // Mark guest slots as human, rest as bots
   for(let i=1;i<=3;i++)pIsBot[i]=i>mpConns.length;
-  // Go straight to countdown — DO NOT call goShipSelect (would destroy mpMode)
-  document.getElementById('overlay').classList.remove('on');
-  startCountdown();
+  // Go to ship select so host can pick their car
+  // Preserve mpMode — do NOT call goShipSelect (resets wave/scores/mp)
+  resetGameState();
+  showScreen('shipSelectScreen');
+  buildShipSelect();
 }
 function mpJoin(){
   const code=document.getElementById('guestCodeInput').value.trim().toLowerCase();
@@ -1750,18 +1790,21 @@ function mpGuestRx(raw){
       mpSendToHost({type:'shipChoice',shipIdx:gShipIdx,playerIdx:mpGuestIdx});
     }
     if(d.type==='start'){showGuestCtrl();}
+    if(d.type==='lobby'){
+      // Host restarting — go back to ship selection
+      document.getElementById('guestCtrl').style.display='none';
+      showScreen('guestScreen');
+      document.getElementById('guestShipWrap').style.display='block';
+      setGuestSt('Host is choosing ships — pick yours!');
+      renderGuestPreview();
+    }
     if(d.type==='frame'){
-      // Display host canvas stream
       const img=document.getElementById('gcMini');
       if(img&&d.url)img.src=d.url;
-      // Update guest HUD bar
       if(d.players&&d.players[mpGuestIdx]){
         updateGcLances(d.players[mpGuestIdx]);
         const lbl=document.getElementById('gcLabel');
-        if(lbl){
-          const p=d.players[mpGuestIdx];
-          lbl.textContent='P'+(mpGuestIdx+1)+' · '+p.score+' PTS';
-        }
+        if(lbl){const p=d.players[mpGuestIdx];lbl.textContent='P'+(mpGuestIdx+1)+' · '+p.score+' PTS';}
       }
     }
     if(d.type==='gameOver'){
