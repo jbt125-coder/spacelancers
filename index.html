@@ -68,7 +68,8 @@ canvas{display:block;background:var(--bg);}
 .pip{width:14px;height:14px;border-radius:50%;border:2px solid #333;background:#111;}
 .pip.on{border-color:var(–ng);background:var(–ng);box-shadow:0 0 8px var(–ng);}
 #mpStatus,#guestStatus{font-size:10px;color:var(–nc);min-height:14px;margin:6px 0;letter-spacing:.1em;}
-#guestCodeInput{font-family:‘Share Tech Mono’,monospace;font-size:15px;padding:10px 14px;background:rgba(0,245,255,.06);border:2px solid rgba(0,245,255,.3);color:var(–nc);border-radius:6px;width:100%;margin-bottom:8px;outline:none;text-align:center;letter-spacing:.1em;}
+#guestCodeInput{font-family:‘Share Tech Mono’,monospace;font-size:15px;padding:10px 14px;background:rgba(255,230,0,.05);border:2px solid rgba(255,230,0,.5);color:#ffe600;text-shadow:0 0 8px rgba(255,230,0,.7);border-radius:6px;width:100%;margin-bottom:8px;outline:none;text-align:center;letter-spacing:.2em;}
+#guestCodeInput::placeholder{color:rgba(255,230,0,.25);text-shadow:none;}
 #guestShipWrap{display:none;width:100%;margin-bottom:8px;}
 .guest-ship-row{display:flex;align-items:center;gap:8px;justify-content:center;}
 .guest-ship-row button{font-family:‘Orbitron’,sans-serif;font-size:15px;width:34px;height:34px;border:2px solid var(–pb);background:transparent;color:var(–nc);border-radius:4px;cursor:pointer;}
@@ -156,14 +157,15 @@ canvas{display:block;background:var(--bg);}
 #skipAudio{background:transparent;border:1px solid rgba(255,255,255,.12);border-radius:8px;color:rgba(255,255,255,.3);font-family:‘Orbitron’,sans-serif;font-size:9px;letter-spacing:2px;padding:9px;cursor:pointer;}
 
 /* ── GUEST CONTROLLER ── */
-#guestCtrl{display:none;position:fixed;inset:0;background:var(–bg);z-index:50;flex-direction:column;align-items:center;justify-content:space-between;padding:18px 0 0;}
-#gcLabel{font-family:‘Orbitron’,sans-serif;font-weight:900;font-size:clamp(13px,3vw,20px);letter-spacing:.2em;margin-bottom:3px;}
+/* ── GUEST CONTROLLER ── */
+#guestCtrl{display:none;position:fixed;inset:0;background:var(–bg);z-index:50;flex-direction:column;align-items:center;justify-content:space-between;padding:0;}
+#gcLabel{font-family:‘Orbitron’,sans-serif;font-weight:900;font-size:clamp(11px,2.5vw,16px);letter-spacing:.2em;}
 #gcSub{font-size:9px;color:#444;letter-spacing:.15em;}
-#gcLances{display:flex;gap:5px;justify-content:center;margin-top:6px;}
-#gcArena{flex:1;width:100%;max-height:200px;position:relative;margin:8px 0;}
-#gcMini{width:100%;height:100%;display:block;image-rendering:pixelated;}
-.gc-ctrls{display:flex;justify-content:space-between;align-items:flex-end;width:100%;padding:0 16px 18px;}
-
+#gcLances{display:flex;gap:5px;justify-content:center;margin-top:3px;}
+#gcTopBar{width:100%;background:rgba(0,0,0,.7);padding:6px 12px;display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
+#gcArena{flex:1;width:100%;position:relative;overflow:hidden;min-height:0;}
+#gcMini{width:100%;height:100%;display:block;object-fit:contain;image-rendering:pixelated;}
+.gc-ctrls{display:flex;justify-content:space-between;align-items:flex-end;width:100%;padding:0 16px 14px;flex-shrink:0;}
 /* ── MP BADGE ── */
 #mpBadge{display:none;position:fixed;top:5px;left:50%;transform:translateX(-50%);font-family:‘Orbitron’,sans-serif;font-size:8px;letter-spacing:.15em;background:rgba(0,245,255,.1);border:1px solid rgba(0,245,255,.28);color:var(–nc);padding:3px 9px;border-radius:10px;z-index:15;pointer-events:none;}
 
@@ -342,12 +344,12 @@ canvas{display:block;background:var(--bg);}
 <!-- GUEST CONTROLLER -->
 
 <div id="guestCtrl">
-  <div style="text-align:center">
+  <div id="gcTopBar">
     <div id="gcLabel">P2</div>
-    <div id="gcSub">CONNECTED · HOST IS DRIVING</div>
+    <div id="gcSub">WAITING FOR HOST...</div>
     <div id="gcLances"></div>
   </div>
-  <div id="gcArena"><canvas id="gcMini"></canvas></div>
+  <div id="gcArena"><img id="gcMini" alt=""></div>
   <div class="gc-ctrls">
     <div class="joystick-wrap" id="gcJoystickWrap">
       <div class="joystick-base">
@@ -1743,10 +1745,28 @@ function mpJoin(){
 }
 function mpGuestRx(raw){
   try{const d=typeof raw==='string'?JSON.parse(raw):raw;
-    if(d.type==='welcome'){mpGuestIdx=d.playerIdx;mpSendToHost({type:'shipChoice',shipIdx:gShipIdx,playerIdx:mpGuestIdx});}
+    if(d.type==='welcome'){
+      mpGuestIdx=d.playerIdx;
+      mpSendToHost({type:'shipChoice',shipIdx:gShipIdx,playerIdx:mpGuestIdx});
+    }
     if(d.type==='start'){showGuestCtrl();}
-    if(d.type==='frame'){renderGcMini(d);if(d.players&&d.players[mpGuestIdx])updateGcLances(d.players[mpGuestIdx]);}
-    if(d.type==='gameOver'){document.getElementById('gcSub').textContent=d.winner===mpGuestIdx?'🏆 YOU WIN!':'GAME OVER';}
+    if(d.type==='frame'){
+      // Display host canvas stream
+      const img=document.getElementById('gcMini');
+      if(img&&d.url)img.src=d.url;
+      // Update guest HUD bar
+      if(d.players&&d.players[mpGuestIdx]){
+        updateGcLances(d.players[mpGuestIdx]);
+        const lbl=document.getElementById('gcLabel');
+        if(lbl){
+          const p=d.players[mpGuestIdx];
+          lbl.textContent='P'+(mpGuestIdx+1)+' · '+p.score+' PTS';
+        }
+      }
+    }
+    if(d.type==='gameOver'){
+      document.getElementById('gcSub').textContent=d.winner===mpGuestIdx?'🏆 YOU WIN!':'GAME OVER';
+    }
   }catch(e){}
 }
 function mpHostRx(raw,gi){
@@ -1787,7 +1807,7 @@ function showGuestCtrl(){
     let md=false;gcWrap.addEventListener('mousedown',e=>{md=true;gcMove(e.clientX,e.clientY);});gcWrap.addEventListener('mousemove',e=>{if(md)gcMove(e.clientX,e.clientY);});gcWrap.addEventListener('mouseup',()=>{md=false;gcRelease();});gcWrap.addEventListener('mouseleave',()=>{md=false;gcRelease();});
   }
   addT(document.getElementById('gcFlap'),()=>mpGuestInput.flap=true,()=>mpGuestInput.flap=false);
-  const mc=document.getElementById('gcMini');mc.width=window.innerWidth;mc.height=200;
+  document.getElementById('gcSub').textContent='WAITING FOR GAME TO START...';
   if(window._gcInterval)clearInterval(window._gcInterval);
   window._gcInterval=setInterval(()=>{
     if(mpMode==='guest'&&mpConnected)
@@ -1805,15 +1825,15 @@ function updateGcLances(ps){
     el.appendChild(d);
   }
 }
-function renderGcMini(d){const mc=document.getElementById('gcMini');if(!mc)return;const mctx=mc.getContext('2d'),mw=mc.width,mh=mc.height,sx=mw/(d.W||800),sy=mh/(d.H||400);mctx.fillStyle='#04050f';mctx.fillRect(0,0,mw,mh);if(d.players)d.players.forEach((p,i)=>{if(!p.alive)return;mctx.fillStyle=PCOLS[i];mctx.shadowColor=PCOLS[i];mctx.shadowBlur=i===mpGuestIdx?8:4;mctx.beginPath();mctx.arc(p.x*sx,p.y*sy,i===mpGuestIdx?7:5,0,Math.PI*2);mctx.fill();mctx.shadowBlur=0;if(i===mpGuestIdx){mctx.strokeStyle='#fff';mctx.lineWidth=1.5;mctx.beginPath();mctx.arc(p.x*sx,p.y*sy,9,0,Math.PI*2);mctx.stroke();}});}
 function mpBroadcast(){
   if(!mpConns.length)return;
-  const frame={type:'frame',W,H,players:players.map(p=>({
-    x:p.x,y:p.y,alive:p.alive,hits:p.hits,lives:p.lives,
-    facing:p.facing,invincible:p.invincible,
-    ship:{maxHits:p.ship.maxHits},color:p.color,score:p.score
-  }))};
-  mpConns.forEach(c=>mpSendTo(c,frame));
+  // Stream the actual game canvas as a JPEG dataURL so guests see exactly what host sees
+  try{
+    const dataUrl=cv.toDataURL('image/jpeg',0.5);
+    const meta={type:'frame',url:dataUrl,
+      players:players.map(p=>({alive:p.alive,lives:p.lives,color:p.color,score:p.score}))};
+    mpConns.forEach(c=>mpSendTo(c,meta));
+  }catch(e){}
 }
 function mpBroadcastEnd(wi){mpConns.forEach(c=>mpSendTo(c,{type:'gameOver',winner:wi}));}
 function mpSendTo(c,d){if(c&&c.open)try{c.send(JSON.stringify(d));}catch(e){}}
