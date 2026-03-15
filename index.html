@@ -541,12 +541,14 @@ function showHowTo(){
 }
 function resetToTitle(){
   stopGame();
+  mpCleanup();
   document.getElementById('hud').classList.remove('on');
   document.getElementById('controls').classList.remove('on');
   document.getElementById('cogBtn').classList.remove('on');
   document.getElementById('mpBadge').style.display='none';
   document.getElementById('overlay').classList.remove('on');
   document.getElementById('countdown').classList.remove('on');
+  document.getElementById('guestCtrl').style.display='none';
   showScreen('titleScreen');
 }
 
@@ -1708,11 +1710,21 @@ function mpHost(){
     mpPeer.on('error',e=>setMpSt('Error: '+e.type));
   });
 }
-function mpCancelHost(){if(mpPeer)mpPeer.destroy();mpConns=[];mpMode=null;mpConnected=false;resetToTitle();}
+function mpCleanup(){
+  if(window._gcInterval){clearInterval(window._gcInterval);window._gcInterval=null;}
+  if(mpPeer){try{mpPeer.destroy();}catch(e){}}
+  mpPeer=null;mpConns=[];mpHostConn=null;mpMode=null;mpConnected=false;
+}
+function mpCancelHost(){mpCleanup();resetToTitle();}
 function mpLaunch(){
+  if(!mpConns.length){setMpSt('No guests connected!');return;}
+  // Tell guests to show their controller
   mpConns.forEach((c,i)=>mpSendTo(c,{type:'start',playerIdx:i+1}));
+  // Mark guest slots as human, rest as bots
   for(let i=1;i<=3;i++)pIsBot[i]=i>mpConns.length;
-  goShipSelect();
+  // Go straight to countdown — DO NOT call goShipSelect (would destroy mpMode)
+  document.getElementById('overlay').classList.remove('on');
+  startCountdown();
 }
 function mpJoin(){
   const code=document.getElementById('guestCodeInput').value.trim().toLowerCase();
@@ -1739,7 +1751,15 @@ function mpGuestRx(raw){
 }
 function mpHostRx(raw,gi){
   try{const d=typeof raw==='string'?JSON.parse(raw):raw;
-    if(d.type==='input'){const p=players[gi];if(p&&p.alive&&!p.respawning){if(d.left){p.facing=-1;if(p.battery>0)p.vx-=FWD*(p.ship.speed/3);}if(d.right){p.facing=1;if(p.battery>0)p.vx+=FWD*(p.ship.speed/3);}if(d.flap&&p.battery>0)p.vy+=FLAP;}}
+    if(d.type==='input'){
+      const idx=d.playerIdx||gi;
+      const p=players[idx];
+      if(p&&p.alive&&!p.respawning){
+        if(d.left){p.facing=-1;if(p.battery>0)p.vx-=FWD*(p.ship.speed/3);}
+        if(d.right){p.facing=1;if(p.battery>0)p.vx+=FWD*(p.ship.speed/3);}
+        if(d.flap&&p.battery>0)p.vy+=FLAP;
+      }
+    }
     if(d.type==='shipChoice'){pShipIdx[d.playerIdx]=d.shipIdx;}
   }catch(e){}
 }
@@ -1768,11 +1788,33 @@ function showGuestCtrl(){
   }
   addT(document.getElementById('gcFlap'),()=>mpGuestInput.flap=true,()=>mpGuestInput.flap=false);
   const mc=document.getElementById('gcMini');mc.width=window.innerWidth;mc.height=200;
-  setInterval(()=>{if(mpMode==='guest'&&mpConnected)mpSendToHost({type:'input',...mpGuestInput});},1000/30);
+  if(window._gcInterval)clearInterval(window._gcInterval);
+  window._gcInterval=setInterval(()=>{
+    if(mpMode==='guest'&&mpConnected)
+      mpSendToHost({type:'input',playerIdx:mpGuestIdx,...mpGuestInput});
+  },1000/30);
 }
-function updateGcLances(ps){const el=document.getElementById('gcLances');if(!el)return;el.innerHTML='';const mh=ps.ship?ps.ship.maxHits:3;for(let i=0;i<mh;i++){const d=document.createElement('div');d.style.cssText='width:20px;height:5px;border-radius:2px;margin:0 2px;background:'+(i<mh-(ps.hits||0)?ps.color:'#222');el.appendChild(d);}}
+function updateGcLances(ps){
+  const el=document.getElementById('gcLances');if(!el)return;
+  el.innerHTML='';
+  const lives=ps.lives!==undefined?ps.lives:MAX_LIVES;
+  for(let i=0;i<MAX_LIVES;i++){
+    const d=document.createElement('div');
+    const on=i<lives;
+    d.style.cssText='width:12px;height:12px;border-radius:50%;margin:0 3px;background:'+(on?ps.color:'#222')+';box-shadow:'+(on?'0 0 6px '+ps.color:'none');
+    el.appendChild(d);
+  }
+}
 function renderGcMini(d){const mc=document.getElementById('gcMini');if(!mc)return;const mctx=mc.getContext('2d'),mw=mc.width,mh=mc.height,sx=mw/(d.W||800),sy=mh/(d.H||400);mctx.fillStyle='#04050f';mctx.fillRect(0,0,mw,mh);if(d.players)d.players.forEach((p,i)=>{if(!p.alive)return;mctx.fillStyle=PCOLS[i];mctx.shadowColor=PCOLS[i];mctx.shadowBlur=i===mpGuestIdx?8:4;mctx.beginPath();mctx.arc(p.x*sx,p.y*sy,i===mpGuestIdx?7:5,0,Math.PI*2);mctx.fill();mctx.shadowBlur=0;if(i===mpGuestIdx){mctx.strokeStyle='#fff';mctx.lineWidth=1.5;mctx.beginPath();mctx.arc(p.x*sx,p.y*sy,9,0,Math.PI*2);mctx.stroke();}});}
-function mpBroadcast(){if(!mpConns.length)return;const frame={type:'frame',W,H,players:players.map(p=>({x:p.x,y:p.y,alive:p.alive,hits:p.hits,facing:p.facing,invincible:p.invincible,ship:{maxHits:p.ship.maxHits},color:p.color}))};mpConns.forEach(c=>mpSendTo(c,frame));}
+function mpBroadcast(){
+  if(!mpConns.length)return;
+  const frame={type:'frame',W,H,players:players.map(p=>({
+    x:p.x,y:p.y,alive:p.alive,hits:p.hits,lives:p.lives,
+    facing:p.facing,invincible:p.invincible,
+    ship:{maxHits:p.ship.maxHits},color:p.color,score:p.score
+  }))};
+  mpConns.forEach(c=>mpSendTo(c,frame));
+}
 function mpBroadcastEnd(wi){mpConns.forEach(c=>mpSendTo(c,{type:'gameOver',winner:wi}));}
 function mpSendTo(c,d){if(c&&c.open)try{c.send(JSON.stringify(d));}catch(e){}}
 function mpSendToHost(d){if(mpHostConn&&mpHostConn.open)try{mpHostConn.send(JSON.stringify(d));}catch(e){}}
